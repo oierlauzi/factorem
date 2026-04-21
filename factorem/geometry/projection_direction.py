@@ -29,7 +29,7 @@ def spherical_to_cartesian(
     np.cos(phi, out=out[...,0])
     np.sin(phi, out=out[...,1])
     np.cos(theta, out=out[...,2])
-    out[...,:2] *= np.sin(theta)
+    out[...,:2] *= np.sin(theta[:,None])
 
     return out
 

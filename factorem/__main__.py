@@ -27,13 +27,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
     #    help='Output directory'
     #)
     parser.add_argument(
-        '-s', '--pixel_size',
-        required=True,
-        metavar='ANGST',
-        type=float,
-        help='Pixel size in angstroms'
-    )
-    parser.add_argument(
         '--angular_spacing',
         metavar='DEG',
         default=5.0,
@@ -70,14 +63,18 @@ def _matrices_from_md(
     )
     shift /= sampling_rate
     
-    np.matmul(rotations, shift.T, out=result[:,:3,3].T)
+    result[:,:3,3] = shift # TODO multiply by rotation
     
     result[:,3,3] = 1
     return result
     
 def run(args: argparse.Namespace):
-    particles_md = starfile.read(args.input)
-    transforms = _matrices_from_md(particles_md, args.sampling_rate)
+    star = starfile.read(args.input)
+    particles_md = star['particles']
+    optics = star['optics']
+    pixel_size = optics.at[0, 'rlnImagePixelSize']
+    
+    transforms = _matrices_from_md(particles_md, pixel_size)
     
     direction_count =  geometry.estimate_projection_direction_count(
         math.radians(args.angular_spacing)
