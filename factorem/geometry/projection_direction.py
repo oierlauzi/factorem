@@ -2,6 +2,10 @@ from typing import List
 import numpy as np
 import math
 
+def estimate_projection_direction_count(spacing: float):
+    spacing2 = spacing*spacing
+    return round(2*math.pi / spacing2)
+
 def sample_projection_directions(n: int) -> np.ndarray:
     out = np.empty((n, 2))
     
@@ -35,7 +39,7 @@ def group_projection_directions(
     max_distance_rad: float,
     consider_mirrors: bool = True,
     batch_size: int = 1024
-) -> List[List[int]]:
+) -> List[np.ndarray]:
     result = []
     
     cos_max_distance = math.cos(max_distance_rad)
@@ -52,9 +56,9 @@ def group_projection_directions(
             if consider_mirrors:
                 cos = abs(cos)
 
-            indices += np.nonzero(cos < cos_max_distance)[0] + start
+            indices.append(np.argwhere(cos >= cos_max_distance)[:,0] + start)
             start = end
 
-        result.append(indices)
+        result.append(np.concat(indices))
     
     return result
