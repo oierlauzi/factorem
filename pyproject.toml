@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "factorem"
+version = "0.1.0"
+description = "Heterogeneity analysis pipeline for CryoEM"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Oier Lauzirika Zarrabeitia", email = "oierlauzu@bizkaia.eu" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "jax",
+    "mrcfile",
+    "starfile",
+    "numpy",
+    "pandas"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+]
+
+[project.scripts]
+factorem = "factorem.__main__:main"
+
+[project.urls]
+Repository = "https://github.com/oierlauzi/factorem"
