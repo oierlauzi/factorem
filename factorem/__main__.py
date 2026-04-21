@@ -6,7 +6,7 @@ import pandas as pd
 import sys
 import math
 
-import geometry
+from . import geometry
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -20,12 +20,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         metavar='STAR',
         help='Input STAR file with particle data'
     )
-    parser.add_argument(
-        '-o', '--output',
-        required=True,
-        metavar='DIR',
-        help='Output directory'
-    )
+    #parser.add_argument(
+    #    '-o', '--output',
+    #    required=True,
+    #    metavar='DIR',
+    #    help='Output directory'
+    #)
     parser.add_argument(
         '-s', '--pixel_size',
         required=True,

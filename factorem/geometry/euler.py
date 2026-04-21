@@ -7,7 +7,7 @@ def euler_zyz_to_matrix(
     tilt: np.ndarray,
     psi: np.ndarray,
     out: Optional[np.ndarray] = None
-) -> np.ndarray.Tensor:
+) -> np.ndarray:
     
     # Create the output
     batch_shape = np.broadcast_shapes(rot.shape, tilt.shape, psi.shape)
