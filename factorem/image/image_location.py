@@ -5,8 +5,7 @@ class ImageLocation(NamedTuple):
     position_in_stack: Optional[int] = None
     
     @staticmethod
-    
-    def parse_image_location(location: str) -> ImageLocation:
+    def parse(location: str) -> 'ImageLocation':
         STACK_INDEXER = '@'
         parts = location.split(STACK_INDEXER, maxsplit=1)
         

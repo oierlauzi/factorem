@@ -9,7 +9,7 @@ from .image_location import ImageLocation
 def _index_or_none(position_in_stack: Optional[int]) -> Optional[int]:
     return None if position_in_stack is None else position_in_stack - 1
 
-def _batch_files(paths: Iterable[ImageLocation]) -> Tuple[str, Optional[slice]]:
+def _batch_files(paths: Iterable[ImageLocation]):
     it = iter(paths)
     
     # Initialize with the first loop iteration
@@ -43,7 +43,7 @@ def _batch_files(paths: Iterable[ImageLocation]) -> Tuple[str, Optional[slice]]:
         yield current_filename, None
 
 class BatchReader:
-    def __init__(self, prefix: Optional[str] = None, max_open: int = 64):
+    def __init__(self, prefix: Optional[str] = None, max_open: int = 16384):
         self._open_files = OrderedDict()
         self._prefix = prefix
         self._max_open = max_open
@@ -71,7 +71,7 @@ class BatchReader:
 
         return result
     
-    def _read_file(self, filename: str) -> mrcfile.MrcFile:      
+    def _read_file(self, filename: str):      
         mrc = self._open_files.get(filename, None)
         
         if mrc is None:            
