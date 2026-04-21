@@ -93,8 +93,6 @@ def run(args: argparse.Namespace):
             batch_shifts = shifts[indices]
 
             start = end
-            
-        print('Direction')
         
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
