@@ -2,6 +2,7 @@ from typing import Iterable, Optional, Tuple
 from collections import OrderedDict
 import numpy as np
 import mrcfile
+import os
 
 from .image_location import ImageLocation
 
@@ -42,8 +43,9 @@ def _batch_files(paths: Iterable[ImageLocation]) -> Tuple[str, Optional[slice]]:
         yield current_filename, None
 
 class BatchReader:
-    def __init__(self, max_open: int = 64):
+    def __init__(self, prefix: Optional[str] = None, max_open: int = 64):
         self._open_files = OrderedDict()
+        self._prefix = prefix
         self._max_open = max_open
         
     def read_batch(self, locations: Iterable[ImageLocation]) -> np.ndarray:
@@ -69,11 +71,11 @@ class BatchReader:
 
         return result
     
-    def _read_file(self, filename: str) -> mrcfile.MrcFile:
+    def _read_file(self, filename: str) -> mrcfile.MrcFile:      
         mrc = self._open_files.get(filename, None)
         
-        if mrc is None:
-            mrc = mrcfile.open(filename, 'r')
+        if mrc is None:            
+            mrc = mrcfile.open(self._make_abs_filename(filename), 'r')
             self._open_files[filename] = mrc
             if(len(self._open_files) >= self._max_open):
                 self._open_files.popitem(last=False)
@@ -83,4 +85,10 @@ class BatchReader:
 
         assert(mrc is not None)
         return mrc
+    
+    def _make_abs_filename(self, filename: str) -> str:
+        if self._prefix is not None:
+            filename = os.path.join(self._prefix, filename)
+            
+        return filename
     
