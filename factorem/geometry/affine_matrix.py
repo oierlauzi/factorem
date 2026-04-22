@@ -40,7 +40,7 @@ def make_affine(
     result_shape = batch_shape + matrix_shape
     result = np.empty(shape=result_shape, dtype=dtype)
 
-    result[...:n_dim,:n_dim] = rotation
+    result[...,:n_dim,:n_dim] = rotation
     _apply_shifts(
         rotation=rotation, 
         shifts=shifts, 

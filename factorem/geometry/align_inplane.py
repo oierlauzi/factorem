@@ -4,11 +4,11 @@ from typing import Optional
 import numpy as np
 
 def align_inplane(
-    reference_matrices_3d: np.ndarray,
+    direction_matrices_3d: np.ndarray,
     image_matrices_3d: np.ndarray,
     apply_streching: bool = False,
 ) -> np.ndarray:
-    delta_matrices_3d = reference_matrices_3d.T @ image_matrices_3d # TODO decide order
+    delta_matrices_3d = image_matrices_3d @ direction_matrices_3d.T
     
     if apply_streching:
         inverse_matrices_3d = np.linalg.inv(delta_matrices_3d)

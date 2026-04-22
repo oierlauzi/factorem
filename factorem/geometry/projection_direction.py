@@ -26,10 +26,10 @@ def spherical_to_cartesian(
     dtype = np.promote_types(theta.dtype, phi.dtype)
     out = np.empty(batch_shape + (3, ), dtype=dtype)
     
-    np.cos(phi, out=out[...,0])
-    np.sin(phi, out=out[...,1])
-    np.cos(theta, out=out[...,2])
-    out[...,:2] *= np.sin(theta[:,None])
+    np.cos(theta, out=out[...,0])
+    np.sin(theta, out=out[...,1])
+    np.cos(phi, out=out[...,2])
+    out[...,:2] *= np.sin(phi[:,None])
 
     return out
 
