@@ -1,21 +1,14 @@
-from typing import Optional, Sequence
+from typing import Optional
 import argparse
 import starfile
 import numpy as np
-import pandas as pd
 import sys
 import math
-import logging
-import jax.numpy as jnp
 import matplotlib.pyplot as plt
-import sklearn.manifold
-import sklearn.decomposition
 
 from . import geometry
 from . import image
 from . import analysis
-from . import ctf
-from .data_loader import DataLoader
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -76,60 +69,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
     return parser.parse_args(argv)
 
-def process_direction(
-    direction_matrix: np.ndarray,
-    indices: np.ndarray,
-    loader: DataLoader,
-    batch_size: int
-):
-    n = len(indices)
-    
-    distances2 = jnp.empty((n, n))
-    start0 = 0
-    while start0 < n:
-        end0 = min(start0 + batch_size, n)
-        batch0_indices = indices[start0:end0]
-        batch0_images, batch0_ctfs = loader.load(batch0_indices, direction_matrix)
-    
-        start1 = 0
-        while start1 < start0:
-            end1 = min(start1 + batch_size, n)
-            batch1_indices = indices[start1:end1]
-            batch1_images, batch1_ctfs = loader.load(batch1_indices, direction_matrix)
-            
-            tile_distances2 = analysis.crossed_pairwise_distance2(
-                batch0_images,
-                batch0_ctfs,
-                batch1_images,
-                batch1_ctfs
-            )
-            distances2 = distances2.at[start0:end0,start1:end1].set(tile_distances2)
-            distances2 = distances2.at[start1:end1,start0:end0].set(tile_distances2.T)
-            
-            start1 = end1
-    
-        tile_distances2 = analysis.self_pairwise_distance2(
-            batch0_images,
-            batch0_ctfs
-        )
-        distances2 = distances2.at[start0:end0,start0:end0].set(tile_distances2)
-
-        start0 = end0
-    
-    #plt.hist(distances2.flatten())
-    #plt.show()
-    
-    affinity = analysis.local_scaling_kernel(distances2)
-    spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=3, affinity='precomputed')
-    y = spectral_embedding.fit_transform(affinity)
-    plt.hist2d(y[:,0], y[:,1])
-    plt.show()
-
-    #laplacian = analysis.compute_laplacian(affinity)
-    #eig_vals, eig_vecs = jnp.linalg.eigh(laplacian)
-    #plt.scatter(eig_vecs[:,-1], eig_vecs[:,-2])
-    #plt.show()
-    
 def run(args: argparse.Namespace):
     star = starfile.read(args.input)
     particles_md = star['particles']
@@ -153,13 +92,6 @@ def run(args: argparse.Namespace):
     defocus_v = particles_md['rlnDefocusV']
     defocus = 0.5*(defocus_u + defocus_v)
     
-    ctf_context = ctf.CtfContext(
-        pixel_size_a=pixel_size,
-        spherical_aberration_mm=spherical_aberration,
-        q0=amplitude_contrast,
-        voltage_kv=voltage
-    )
-    
     direction_count =  geometry.estimate_projection_direction_count(
         math.radians(args.angular_spacing)
     )
@@ -175,7 +107,7 @@ def run(args: argparse.Namespace):
         math.radians(args.group_angle)
     )
     
-    loader = DataLoader(
+    loader = analysis.DataLoader(
         image_locations=image_locations,
         image_prefix=args.prefix,
         rotations=rotations,
@@ -188,18 +120,30 @@ def run(args: argparse.Namespace):
         amplitude_contrast=amplitude_contrast
     )
     
+    processor: analysis.Processor = None
+    if False:
+        processor = analysis.PCA(n_components=5)
+    else:
+        processor = analysis.SpectralEmbedding(
+            n_components=5,
+            batch_size=args.batch_size,
+            kernel='median'
+        )
+    
     #frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
-    batch_size = args.batch_size
     for i in range(direction_count):
         if len(groups[i]) < 100:
+            print(f'Skipping direction {i}')
             continue
         
-        process_direction(
-            direction_matrix=direction_matrices[i],
-            indices=groups[i],
+        y = processor.embed(
             loader=loader,
-            batch_size=batch_size
+            indices=groups[i],
+            direction_matrix=direction_matrices[i]
         )
+        
+        plt.scatter(y[:,0], y[:,1])
+        plt.show()
     
         
 def main(argv=None) -> Optional[int]:

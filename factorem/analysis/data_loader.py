@@ -2,10 +2,39 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from . import image
-from . import geometry
-from . import ctf
-from . import analysis
+from .. import image
+from .. import geometry
+from .. import ctf
+
+def _pad_images_2d(images: jnp.ndarray, padded_box_size: int):
+    batch_shape = images.shape[:-2]
+    original_box_size_y, original_box_size_x = images.shape[-2:]
+    result_shape = batch_shape + (padded_box_size, padded_box_size)
+    
+    result = jnp.zeros(result_shape, dtype=images.dtype)
+    return result.at[...,:original_box_size_y,:original_box_size_x].set(images)
+
+def _apply_affine_single(image, matrix_inv):
+    H, W = image.shape
+    y, x = jnp.mgrid[0:H, 0:W]
+    coords = jnp.stack([x.ravel(), y.ravel(), jnp.ones_like(x.ravel())])
+    
+    src_coords = matrix_inv @ coords
+    src_x = src_coords[0, :] / src_coords[2, :]
+    src_y = src_coords[1, :] / src_coords[2, :]
+    
+    sample_coords = jnp.stack([src_y.reshape(H, W), src_x.reshape(H, W)])
+    transformed = jax.scipy.ndimage.map_coordinates(
+        image, 
+        sample_coords, 
+        order=1, 
+        mode='constant', 
+        cval=0.0
+    )
+    
+    return transformed
+
+_apply_affine_batch = jax.vmap(_apply_affine_single, in_axes=(0, 0))
 
 class DataLoader:
     def __init__(
@@ -57,11 +86,11 @@ class DataLoader:
         affine = geometry.make_affine(matrix_2d, batch_shifts, centre)
         affine = np.linalg.inv(affine)
 
-        transformed_images = analysis.apply_affine_batch(
+        transformed_images = _apply_affine_batch(
             batch_images, 
             jax.device_put(affine)
         )
-        transformed_images = analysis.pad_images_2d(
+        transformed_images = _pad_images_2d(
             transformed_images, 
             self.padded_box_size
         )
@@ -69,8 +98,6 @@ class DataLoader:
         transformed_images_ft = jnp.fft.rfft2(transformed_images)
         transformed_images_ft /= box_size_x*box_size_y
         
-        #wiener_corrected_images_ft = (transformed_images_ft*ctf_images) / (np.square(ctf_images) + 0.1*np.mean(np.square(ctf_images), axis=(-1, -2), keepdims=True))
-        #wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
 
         return (transformed_images_ft, ctf_images)
     
