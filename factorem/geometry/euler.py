@@ -19,9 +19,13 @@ def euler_zyz_to_matrix(
     elif out.shape != result_shape or out.dtype != dtype:
         raise RuntimeError('Invalid output array was provided')
     
-    ai = -rot
-    aj = -tilt
-    ak = -psi 
+    ai = rot
+    aj = tilt
+    ak = psi 
+
+
+
+    
 
     # Obtain sin and cos of the half angles
     ci = np.cos(ai)
@@ -32,20 +36,20 @@ def euler_zyz_to_matrix(
     sk = np.sin(ak)
     
     # Obtain the combinations
-    cc = ci * ck
-    cs = ci * sk
-    sc = si * ck
-    ss = si * sk
+    cc = cj * ci
+    cs = cj * si
+    sc = sj * ci
+    ss = sj * si
 
     # Build the matrix
-    out[...,0,0] = cj * cc - ss
-    out[...,0,1] = cj * sc + cs
-    out[...,0,2] = -sj * ck
-    out[...,1,0] = -cj * cs - sc
-    out[...,1,1] = -cj * ss + cc
-    out[...,1,2] = sj * sk
-    out[...,2,0] = sj * ci
-    out[...,2,1] = sj * si
+    out[...,0,0] = ck*cc - sk*si
+    out[...,0,1] = ck*cs + sk*ci
+    out[...,0,2] = -ck*sj
+    out[...,1,0] = -sk*cc - ck*si
+    out[...,1,1] = -sk*cs + ck*ci
+    out[...,1,2] = sk*sj
+    out[...,2,0] = sc
+    out[...,2,1] = ss
     out[...,2,2] = cj
-    
+
     return out

@@ -74,14 +74,15 @@ def preprocess_batch(
     _, box_size_y, box_size_x = batch_images.shape
     centre = np.array((box_size_y/2, box_size_x/2))
     
-    delta = batch_rotations @ reference_matrix.T
-    mirrors = delta[:,2,2] < 0
+    ctf_images = ctf.compute_ctf_image_2d(
+        jnp.asarray(batch_defocus), 
+        padded_box_size, 
+        ctf_context
+    )
     
-    rotation2d = geometry.align_inplane(reference_matrix, batch_rotations)
+    rotation2d = geometry.compute_in_plane_alignment(reference_matrix, batch_rotations)
     affine = geometry.make_affine(rotation2d, batch_shifts, centre)
     affine = np.linalg.inv(affine)
-    
-    ctf_images = ctf.compute_ctf_image_2d(jnp.asarray(batch_defocus), padded_box_size, ctf_context)
 
     transformed_images = analysis.apply_affine_batch(batch_images, jnp.asarray(affine))
     transformed_images = analysis.pad_images_2d(transformed_images, padded_box_size)
@@ -89,30 +90,14 @@ def preprocess_batch(
     transformed_images_ft = jnp.fft.rfft2(transformed_images)
     transformed_images_ft /= box_size_x*box_size_y
     
-    
-    
-    wiener_corrected_images_ft = (transformed_images_ft*ctf_images) / (np.square(ctf_images) + 0.1*np.mean(np.square(ctf_images), axis=(-1, -2), keepdims=True))
-    wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
+    #wiener_corrected_images_ft = (transformed_images_ft*ctf_images) / (np.square(ctf_images) + 0.1*np.mean(np.square(ctf_images), axis=(-1, -2), keepdims=True))
+    #wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
 
-    fig, (ax1, ax2) = plt.subplots(2)
-    ax1.imshow(wiener_corrected_images[ mirrors].sum(axis=0))
-    ax2.imshow(wiener_corrected_images[~mirrors].sum(axis=0))
-    plt.show()
-    
-    #pca = sklearn.decomposition.PCA(n_components=2)
-    #y = pca.fit_transform(wiener_corrected_images.reshape(len(wiener_corrected_images), -1))
-    #plt.imshow(pca.components_[1].reshape(wiener_corrected_images.shape[-2:]))
-    #plt.show()
-    #plt.scatter(y[:,0], y[:,1])
-    #plt.show()
-
-    #plt.imshow(wiener_corrected_images[:,:box_size_y,:box_size_x].sum(axis=0))
-    #plt.show()
     return (transformed_images_ft, ctf_images)
     
 
 def process_direction(
-    direction: np.ndarray,
+    direction_matrix: np.ndarray,
     image_locations: Sequence[image.ImageLocation],
     rotations: np.ndarray,
     shifts: np.ndarray,
@@ -125,15 +110,6 @@ def process_direction(
     batch_size: int
 ):
     n = len(indices)
-    
-    direction_rot = direction[0]
-    direction_tilt = direction[1]
-    direction_psi = 0.0
-    direction_matrix = geometry.euler_zyz_to_matrix(
-        np.array(direction_rot),
-        np.array(direction_tilt),
-        np.array(direction_psi)
-    )
     
     distances2 = jnp.empty((n, n))
     start0 = 0
@@ -194,12 +170,12 @@ def process_direction(
     #plt.hist(distances2.flatten())
     #plt.show()
     
-    #spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=2, affinity='precomputed')
-    #sigma2 = 100
+    #spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=3, affinity='precomputed')
+    #sigma2 = 10
     #affinity = jnp.exp((-0.5/sigma2)*distances2)
     
     #y = spectral_embedding.fit_transform(affinity)
-    #plt.scatter(y[:,0], y[:,1])
+    #plt.scatter(y[:,1], y[:,2])
     #plt.show()
 
     
@@ -243,16 +219,16 @@ def run(args: argparse.Namespace):
         math.radians(args.angular_spacing)
     )
     directions = geometry.sample_projection_directions(direction_count)
-    direction_vectors = geometry.spherical_to_cartesian(
-        -directions[:,0],
-        -directions[:,1]
+    direction_matrices = geometry.euler_zyz_to_matrix(
+        directions[:,0],
+        directions[:,1],
+        np.array(0)
     )
     groups = geometry.group_projection_directions(
         rotations[:,2,:],
-        direction_vectors,
+        direction_matrices[:,2,:],
         math.radians(args.group_angle)
     )
-    
     
     batch_size = 1024 # TODO
     reader = image.BatchReader(args.prefix)
@@ -261,7 +237,7 @@ def run(args: argparse.Namespace):
 
     for i in range(direction_count):
         process_direction(
-            direction=directions[i],
+            direction_matrix=direction_matrices[i],
             image_locations=image_locations,
             rotations=rotations,
             shifts=shifts,

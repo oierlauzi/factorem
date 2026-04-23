@@ -19,17 +19,21 @@ def sample_projection_directions(n: int) -> np.ndarray:
     return out
 
 def spherical_to_cartesian(
-    theta: np.ndarray,
-    phi: np.ndarray
+    rot: np.ndarray,
+    tilt: np.ndarray
 ) -> np.ndarray:
-    batch_shape = np.broadcast_shapes(theta.shape, phi.shape)
-    dtype = np.promote_types(theta.dtype, phi.dtype)
+    batch_shape = np.broadcast_shapes(rot.shape, tilt.shape)
+    dtype = np.promote_types(rot.dtype, tilt.dtype)
     out = np.empty(batch_shape + (3, ), dtype=dtype)
     
-    np.cos(theta, out=out[...,0])
-    np.sin(theta, out=out[...,1])
-    np.cos(phi, out=out[...,2])
-    out[...,:2] *= np.sin(phi[:,None])
+    # To match the sign of euler_zyz_to_matrix
+    rot = -rot
+    tilt = -tilt
+    
+    np.cos(rot, out=out[...,0])
+    np.sin(rot, out=out[...,1])
+    np.cos(tilt, out=out[...,2])
+    out[...,:2] *= np.sin(tilt[:,None])
 
     return out
 

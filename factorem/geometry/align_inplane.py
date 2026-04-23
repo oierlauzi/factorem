@@ -1,14 +1,12 @@
 
-from typing import Optional
-
 import numpy as np
 
-def align_inplane(
-    direction_matrices_3d: np.ndarray,
-    image_matrices_3d: np.ndarray,
+def compute_in_plane_alignment(
+    reference_matrix_3d: np.ndarray,
+    rotation_matrices_3d: np.ndarray,
     apply_streching: bool = False,
 ) -> np.ndarray:
-    delta_matrices_3d = image_matrices_3d @ direction_matrices_3d.T
+    delta_matrices_3d = reference_matrix_3d @ rotation_matrices_3d.swapaxes(-2, -1)
     
     if apply_streching:
         inverse_matrices_3d = np.linalg.inv(delta_matrices_3d)
