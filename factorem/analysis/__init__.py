@@ -3,3 +3,4 @@ from .padding import pad_images_2d
 from .low_pass_filter import butterworth_2d
 from .pairwise_distance import self_pairwise_distance2, crossed_pairwise_distance2
 from .laplacian import compute_laplacian
+from .affinity import radial_basis_function, local_scaling_kernel, median_scaling_kernel

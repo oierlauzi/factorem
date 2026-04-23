@@ -53,6 +53,25 @@ def _parse_args(argv=None) -> argparse.Namespace:
         metavar='DIR',
         help='Prefix for the MRC binary files.'
     )
+    parser.add_argument(
+        '--min_particles',
+        type=int,
+        default=100,
+        help='Minimum number of particles for analysis'
+    )
+    parser.add_argument(
+        '--batch_size',
+        type=int,
+        default=256,
+        help='Number of particles processed concurrently'
+    )
+    parser.add_argument(
+        '--padding_factor',
+        type=float,
+        default=2.0,
+        help='Padding factor to increase spectral resolution'
+    )
+
 
     return parser.parse_args(argv)
 
@@ -136,7 +155,7 @@ def process_direction(
             batch1_indices = indices[start1:end1]
     
             batch1_images, batch1_ctfs = preprocess_batch(
-                reference_direction=direction_matrix,
+                reference_matrix=direction_matrix,
                 image_locations=image_locations,
                 rotations=rotations,
                 shifts=shifts,
@@ -170,20 +189,16 @@ def process_direction(
     #plt.hist(distances2.flatten())
     #plt.show()
     
-    #spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=3, affinity='precomputed')
-    #sigma2 = 10
-    #affinity = jnp.exp((-0.5/sigma2)*distances2)
-    
-    #y = spectral_embedding.fit_transform(affinity)
-    #plt.scatter(y[:,1], y[:,2])
+    affinity = analysis.local_scaling_kernel(distances2)
+    spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=3, affinity='precomputed')
+    y = spectral_embedding.fit_transform(affinity)
+    #plt.scatter(y[:,0], y[:,1])
     #plt.show()
 
-    
     #laplacian = analysis.compute_laplacian(affinity)
-    #
     #eig_vals, eig_vecs = jnp.linalg.eigh(laplacian)
-    #
-
+    #plt.scatter(eig_vecs[:,-1], eig_vecs[:,-2])
+    #plt.show()
     
 def run(args: argparse.Namespace):
     star = starfile.read(args.input)
@@ -230,12 +245,14 @@ def run(args: argparse.Namespace):
         math.radians(args.group_angle)
     )
     
-    batch_size = 1024 # TODO
     reader = image.BatchReader(args.prefix)
-    padded_box_size = 256 # TODO
+    padded_box_size = round(args.padding_factor*128) # TODO
     frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
-
+    batch_size = args.batch_size
     for i in range(direction_count):
+        if len(groups[i]) < 100:
+            continue
+        
         process_direction(
             direction_matrix=direction_matrices[i],
             image_locations=image_locations,
