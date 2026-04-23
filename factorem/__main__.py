@@ -15,6 +15,7 @@ from . import geometry
 from . import image
 from . import analysis
 from . import ctf
+from .data_loader import DataLoader
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -75,57 +76,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
     return parser.parse_args(argv)
 
-def preprocess_batch(
-    reference_matrix: np.ndarray,
-    image_locations: Sequence[image.ImageLocation],
-    rotations: np.ndarray,
-    shifts: np.ndarray,
-    defocus: np.ndarray,
-    indices: np.ndarray,
-    reader: image.BatchReader,
-    ctf_context: ctf.CtfContext,
-    padded_box_size: int
-):        
-    batch_images = jnp.asarray(reader.read_batch(image_locations[indices]))
-    batch_rotations = rotations[indices]
-    batch_shifts = shifts[indices]
-    batch_defocus = defocus[indices]
-    _, box_size_y, box_size_x = batch_images.shape
-    centre = np.array((box_size_y/2, box_size_x/2))
-    
-    ctf_images = ctf.compute_ctf_image_2d(
-        jnp.asarray(batch_defocus), 
-        padded_box_size, 
-        ctf_context
-    )
-    
-    rotation2d = geometry.compute_in_plane_alignment(reference_matrix, batch_rotations)
-    affine = geometry.make_affine(rotation2d, batch_shifts, centre)
-    affine = np.linalg.inv(affine)
-
-    transformed_images = analysis.apply_affine_batch(batch_images, jnp.asarray(affine))
-    transformed_images = analysis.pad_images_2d(transformed_images, padded_box_size)
-    
-    transformed_images_ft = jnp.fft.rfft2(transformed_images)
-    transformed_images_ft /= box_size_x*box_size_y
-    
-    #wiener_corrected_images_ft = (transformed_images_ft*ctf_images) / (np.square(ctf_images) + 0.1*np.mean(np.square(ctf_images), axis=(-1, -2), keepdims=True))
-    #wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
-
-    return (transformed_images_ft, ctf_images)
-    
-
 def process_direction(
     direction_matrix: np.ndarray,
-    image_locations: Sequence[image.ImageLocation],
-    rotations: np.ndarray,
-    shifts: np.ndarray,
-    defocus: np.ndarray,
     indices: np.ndarray,
-    reader: image.BatchReader,
-    ctf_context: ctf.CtfContext,
-    padded_box_size: int,
-    frequency_mask: jnp.ndarray,
+    loader: DataLoader,
     batch_size: int
 ):
     n = len(indices)
@@ -135,37 +89,13 @@ def process_direction(
     while start0 < n:
         end0 = min(start0 + batch_size, n)
         batch0_indices = indices[start0:end0]
-    
-        batch0_images, batch0_ctfs = preprocess_batch(
-            reference_matrix=direction_matrix,
-            image_locations=image_locations,
-            rotations=rotations,
-            shifts=shifts,
-            defocus=defocus,
-            indices=batch0_indices,
-            reader=reader,
-            ctf_context=ctf_context,
-            padded_box_size=padded_box_size
-        )
-        #batch0_ctfs = frequency_mask*batch0_ctfs
+        batch0_images, batch0_ctfs = loader.load(batch0_indices, direction_matrix)
     
         start1 = 0
         while start1 < start0:
             end1 = min(start1 + batch_size, n)
             batch1_indices = indices[start1:end1]
-    
-            batch1_images, batch1_ctfs = preprocess_batch(
-                reference_matrix=direction_matrix,
-                image_locations=image_locations,
-                rotations=rotations,
-                shifts=shifts,
-                defocus=defocus,
-                indices=batch1_indices,
-                reader=reader,
-                ctf_context=ctf_context,
-                padded_box_size=padded_box_size
-            )
-            #batch1_ctfs = frequency_mask*batch1_ctfs
+            batch1_images, batch1_ctfs = loader.load(batch1_indices, direction_matrix)
             
             tile_distances2 = analysis.crossed_pairwise_distance2(
                 batch0_images,
@@ -192,8 +122,8 @@ def process_direction(
     affinity = analysis.local_scaling_kernel(distances2)
     spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=3, affinity='precomputed')
     y = spectral_embedding.fit_transform(affinity)
-    #plt.scatter(y[:,0], y[:,1])
-    #plt.show()
+    plt.hist2d(y[:,0], y[:,1])
+    plt.show()
 
     #laplacian = analysis.compute_laplacian(affinity)
     #eig_vals, eig_vecs = jnp.linalg.eigh(laplacian)
@@ -245,9 +175,20 @@ def run(args: argparse.Namespace):
         math.radians(args.group_angle)
     )
     
-    reader = image.BatchReader(args.prefix)
-    padded_box_size = round(args.padding_factor*128) # TODO
-    frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
+    loader = DataLoader(
+        image_locations=image_locations,
+        image_prefix=args.prefix,
+        rotations=rotations,
+        shifts=shifts,
+        defocus=defocus,
+        padded_box_size=round(args.padding_factor*288), # TODO
+        pixel_size_a=pixel_size,
+        voltage_kv=voltage,
+        spherical_aberration_mm=spherical_aberration,
+        amplitude_contrast=amplitude_contrast
+    )
+    
+    #frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
     batch_size = args.batch_size
     for i in range(direction_count):
         if len(groups[i]) < 100:
@@ -255,16 +196,9 @@ def run(args: argparse.Namespace):
         
         process_direction(
             direction_matrix=direction_matrices[i],
-            image_locations=image_locations,
-            rotations=rotations,
-            shifts=shifts,
-            defocus=defocus,
             indices=groups[i],
-            batch_size=batch_size,
-            reader=reader,
-            padded_box_size=padded_box_size,
-            frequency_mask=frequency_mask,
-            ctf_context=ctf_context
+            loader=loader,
+            batch_size=batch_size
         )
     
         

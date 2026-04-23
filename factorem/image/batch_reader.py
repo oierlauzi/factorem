@@ -55,11 +55,15 @@ class BatchReader:
             mrc = self._read_file(filename)
             data = mrc.data
             
+            if data.ndim == 4:
+                data = data[:,0,:,:]
+            
             if mrc.is_image_stack() or mrc.is_volume_stack():
                 if index_slice is None:
                     raise RuntimeError(
                         'Image index should be provided for image stacks'
                     )
+                
                 output_stacks.append(data[index_slice])
             else:
                 output_stacks.append(data[None])
