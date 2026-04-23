@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Sequence
 import argparse
 import starfile
 import numpy as np
@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from . import geometry
 from . import image
 from . import analysis
+from . import ctf
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -53,11 +54,63 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
     return parser.parse_args(argv)
 
+def process_direction(
+    direction: np.ndarray,
+    image_locations: Sequence[image.ImageLocation],
+    rotations: np.ndarray,
+    shifts: np.ndarray,
+    defocus: np.ndarray,
+    indices: np.ndarray,
+    reader: image.BatchReader,
+    ctf_context: ctf.CtfContext,
+    padded_box_size: int,
+    batch_size: int
+):
+    n = len(indices)
+    
+    direction_rot = direction[0]
+    direction_tilt = direction[1]
+    direction_psi = 0.0
+    direction_matrix = geometry.euler_zyz_to_matrix(
+        np.array(direction_rot),
+        np.array(direction_tilt),
+        np.array(direction_psi)
+    )
+    
+    start = 0
+    while start < n:
+        end = min(start + batch_size, n)
+        batch_indices = indices[start:end]
+
+        batch_images = jnp.asarray(reader.read_batch(image_locations[batch_indices]))
+        batch_rotations = rotations[batch_indices]
+        batch_shifts = shifts[batch_indices]
+        batch_defocus = defocus[batch_indices]
+        _, box_size_y, box_size_x = batch_images.shape
+        centre = np.array((box_size_y/2, box_size_x/2))
+        
+        rotation2d = geometry.align_inplane(direction_matrix, batch_rotations)
+        affine = geometry.make_affine(rotation2d, batch_shifts, centre)
+        affine = np.linalg.inv(affine)
+        
+        transformed_images = analysis.apply_affine_batch(batch_images, jnp.asarray(affine))
+        transformed_images = analysis.pad_images_2d(transformed_images, padded_box_size)
+        
+        ctf_images = ctf.compute_ctf_image_2d(jnp.asarray(batch_defocus), padded_box_size, ctf_context)
+        print(ctf_images.shape)
+        plt.imshow(ctf_images[0])
+        plt.show()
+        
+        start = end
+
 def run(args: argparse.Namespace):
     star = starfile.read(args.input)
     particles_md = star['particles']
     optics = star['optics']
     pixel_size = optics.at[0, 'rlnImagePixelSize']
+    amplitude_contrast = optics.at[0, 'rlnAmplitudeContrast']
+    spherical_aberration = optics.at[0, 'rlnSphericalAberration']
+    voltage = optics.at[0, 'rlnVoltage']
     
     image_locations = particles_md['rlnImageName'].map(image.ImageLocation.parse)
     rotations = geometry.euler_zyz_to_matrix(
@@ -68,6 +121,16 @@ def run(args: argparse.Namespace):
     shifts = (1/pixel_size) * np.stack(
         (particles_md['rlnOriginXAngst'], particles_md['rlnOriginYAngst']), 
         axis=1
+    )
+    defocus_u = particles_md['rlnDefocusU']
+    defocus_v = particles_md['rlnDefocusV']
+    defocus = 10*0.5*(defocus_u + defocus_v)
+    
+    ctf_context = ctf.CtfContext(
+        pixel_size_a=pixel_size,
+        spherical_aberration_mm=spherical_aberration,
+        q0=amplitude_contrast,
+        voltage_kv=voltage
     )
     
     direction_count =  geometry.estimate_projection_direction_count(
@@ -84,38 +147,23 @@ def run(args: argparse.Namespace):
         math.radians(args.group_angle)
     )
     
-    batch_size = 16384 # TODO
+    batch_size = 256
     reader = image.BatchReader(args.prefix)
+    padded_box_size = 256 # TODO
     for i in range(direction_count):
-        particle_indices = groups[i]
-        n = len(particle_indices)
-        start = 0
-        
-        direction_rot = directions[i,0]
-        direction_tilt = directions[i,1]
-        direction_psi = 0.0
-        direction_matrix = geometry.euler_zyz_to_matrix(
-            np.array(direction_rot),
-            np.array(direction_tilt),
-            np.array(direction_psi)
+        process_direction(
+            direction=directions[i],
+            image_locations=image_locations,
+            rotations=rotations,
+            shifts=shifts,
+            defocus=defocus,
+            indices=groups[i],
+            batch_size=batch_size,
+            reader=reader,
+            padded_box_size=padded_box_size,
+            ctf_context=ctf_context
         )
-        
-        while start < n:
-            end = min(start + batch_size, n)
-            indices = particle_indices[start:end]
-
-            batch_images = jnp.asarray(reader.read_batch(image_locations[indices]))
-            batch_rotations = rotations[indices]
-            batch_shifts = shifts[indices]
-            centre = np.array(batch_images.shape[1:]) / 2
-            
-            rotation2d = geometry.align_inplane(direction_matrix, batch_rotations)
-            affine = geometry.make_affine(rotation2d, batch_shifts, centre)
-            affine = np.linalg.inv(affine)
-            
-            transformed_images = analysis.apply_affine_batch(batch_images, jnp.asarray(affine))
-            
-            start = end
+    
         
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
