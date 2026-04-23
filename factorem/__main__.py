@@ -8,6 +8,8 @@ import math
 import logging
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import sklearn.manifold
+import sklearn.decomposition
 
 from . import geometry
 from . import image
@@ -54,6 +56,51 @@ def _parse_args(argv=None) -> argparse.Namespace:
 
     return parser.parse_args(argv)
 
+def preprocess_batch(
+    reference_direction: np.ndarray,
+    image_locations: Sequence[image.ImageLocation],
+    rotations: np.ndarray,
+    shifts: np.ndarray,
+    defocus: np.ndarray,
+    indices: np.ndarray,
+    reader: image.BatchReader,
+    ctf_context: ctf.CtfContext,
+    padded_box_size: int
+):        
+    batch_images = jnp.asarray(reader.read_batch(image_locations[indices]))
+    batch_rotations = rotations[indices]
+    batch_shifts = shifts[indices]
+    batch_defocus = defocus[indices]
+    _, box_size_y, box_size_x = batch_images.shape
+    centre = np.array((box_size_y/2, box_size_x/2))
+    
+    rotation2d = geometry.align_inplane(reference_direction, batch_rotations)
+    affine = geometry.make_affine(rotation2d, batch_shifts, centre)
+    affine = np.linalg.inv(affine)
+    
+    ctf_images = ctf.compute_ctf_image_2d(jnp.asarray(batch_defocus), padded_box_size, ctf_context)
+
+    transformed_images = analysis.apply_affine_batch(batch_images, jnp.asarray(affine))
+    transformed_images = analysis.pad_images_2d(transformed_images, padded_box_size)
+    
+    transformed_images_ft = jnp.fft.rfft2(transformed_images)
+    transformed_images_ft /= box_size_x*box_size_y
+    
+    wiener_corrected_images_ft = (transformed_images_ft*ctf_images) / (np.square(ctf_images) + 0.1*np.mean(np.square(ctf_images), axis=(-1, -2), keepdims=True))
+    wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
+
+    #pca = sklearn.decomposition.PCA(n_components=2)
+    #y = pca.fit_transform(wiener_corrected_images.reshape(len(wiener_corrected_images), -1))
+    #plt.imshow(pca.components_[1].reshape(wiener_corrected_images.shape[-2:]))
+    #plt.show()
+    #plt.scatter(y[:,0], y[:,1])
+    #plt.show()
+
+    plt.imshow(wiener_corrected_images[:,:box_size_y,:box_size_x].sum(axis=0))
+    plt.show()
+    return (transformed_images_ft, ctf_images)
+    
+
 def process_direction(
     direction: np.ndarray,
     image_locations: Sequence[image.ImageLocation],
@@ -64,6 +111,7 @@ def process_direction(
     reader: image.BatchReader,
     ctf_context: ctf.CtfContext,
     padded_box_size: int,
+    frequency_mask: jnp.ndarray,
     batch_size: int
 ):
     n = len(indices)
@@ -77,32 +125,77 @@ def process_direction(
         np.array(direction_psi)
     )
     
-    start = 0
-    while start < n:
-        end = min(start + batch_size, n)
-        batch_indices = indices[start:end]
+    distances2 = jnp.empty((n, n))
+    start0 = 0
+    while start0 < n:
+        end0 = min(start0 + batch_size, n)
+        batch0_indices = indices[start0:end0]
+    
+        batch0_images, batch0_ctfs = preprocess_batch(
+            reference_direction=direction_matrix,
+            image_locations=image_locations,
+            rotations=rotations,
+            shifts=shifts,
+            defocus=defocus,
+            indices=batch0_indices,
+            reader=reader,
+            ctf_context=ctf_context,
+            padded_box_size=padded_box_size
+        )
+        batch0_ctfs = frequency_mask*batch0_ctfs
+    
+        start1 = 0
+        while start1 < start0:
+            end1 = min(start1 + batch_size, n)
+            batch1_indices = indices[start1:end1]
+    
+            batch1_images, batch1_ctfs = preprocess_batch(
+                reference_direction=direction_matrix,
+                image_locations=image_locations,
+                rotations=rotations,
+                shifts=shifts,
+                defocus=defocus,
+                indices=batch1_indices,
+                reader=reader,
+                ctf_context=ctf_context,
+                padded_box_size=padded_box_size
+            )
+            batch1_ctfs = frequency_mask*batch1_ctfs
+            
+            tile_distances2 = analysis.crossed_pairwise_distance2(
+                batch0_images,
+                batch0_ctfs,
+                batch1_images,
+                batch1_ctfs
+            )
+            distances2 = distances2.at[start0:end0,start1:end1].set(tile_distances2)
+            distances2 = distances2.at[start1:end1,start0:end0].set(tile_distances2.T)
+            
+            start1 = end1
+    
+        tile_distances2 = analysis.self_pairwise_distance2(
+            batch0_images,
+            batch0_ctfs
+        )
+        distances2 = distances2.at[start0:end0,start0:end0].set(tile_distances2)
 
-        batch_images = jnp.asarray(reader.read_batch(image_locations[batch_indices]))
-        batch_rotations = rotations[batch_indices]
-        batch_shifts = shifts[batch_indices]
-        batch_defocus = defocus[batch_indices]
-        _, box_size_y, box_size_x = batch_images.shape
-        centre = np.array((box_size_y/2, box_size_x/2))
-        
-        rotation2d = geometry.align_inplane(direction_matrix, batch_rotations)
-        affine = geometry.make_affine(rotation2d, batch_shifts, centre)
-        affine = np.linalg.inv(affine)
-        
-        transformed_images = analysis.apply_affine_batch(batch_images, jnp.asarray(affine))
-        transformed_images = analysis.pad_images_2d(transformed_images, padded_box_size)
-        
-        ctf_images = ctf.compute_ctf_image_2d(jnp.asarray(batch_defocus), padded_box_size, ctf_context)
-        print(ctf_images.shape)
-        plt.imshow(ctf_images[0])
-        plt.show()
-        
-        start = end
+        start0 = end0
+    
+    sigma2 = 1
+    
+    spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=2, affinity='precomputed')
+    affinity = jnp.exp((-0.5/sigma2)*distances2)
+    y = spectral_embedding.fit_transform(affinity)
+    #plt.scatter(y[:,-1], y[:,-2])
+    #plt.show()
 
+    
+    #laplacian = analysis.compute_laplacian(affinity)
+    #
+    #eig_vals, eig_vecs = jnp.linalg.eigh(laplacian)
+    #
+
+    
 def run(args: argparse.Namespace):
     star = starfile.read(args.input)
     particles_md = star['particles']
@@ -124,7 +217,7 @@ def run(args: argparse.Namespace):
     )
     defocus_u = particles_md['rlnDefocusU']
     defocus_v = particles_md['rlnDefocusV']
-    defocus = 10*0.5*(defocus_u + defocus_v)
+    defocus = 0.5*(defocus_u + defocus_v)
     
     ctf_context = ctf.CtfContext(
         pixel_size_a=pixel_size,
@@ -147,9 +240,12 @@ def run(args: argparse.Namespace):
         math.radians(args.group_angle)
     )
     
-    batch_size = 256
+    
+    batch_size = 1024 # TODO
     reader = image.BatchReader(args.prefix)
     padded_box_size = 256 # TODO
+    frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
+
     for i in range(direction_count):
         process_direction(
             direction=directions[i],
@@ -161,6 +257,7 @@ def run(args: argparse.Namespace):
             batch_size=batch_size,
             reader=reader,
             padded_box_size=padded_box_size,
+            frequency_mask=frequency_mask,
             ctf_context=ctf_context
         )
     
