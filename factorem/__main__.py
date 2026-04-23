@@ -57,7 +57,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 def preprocess_batch(
-    reference_direction: np.ndarray,
+    reference_matrix: np.ndarray,
     image_locations: Sequence[image.ImageLocation],
     rotations: np.ndarray,
     shifts: np.ndarray,
@@ -74,7 +74,10 @@ def preprocess_batch(
     _, box_size_y, box_size_x = batch_images.shape
     centre = np.array((box_size_y/2, box_size_x/2))
     
-    rotation2d = geometry.align_inplane(reference_direction, batch_rotations)
+    delta = batch_rotations @ reference_matrix.T
+    mirrors = delta[:,2,2] < 0
+    
+    rotation2d = geometry.align_inplane(reference_matrix, batch_rotations)
     affine = geometry.make_affine(rotation2d, batch_shifts, centre)
     affine = np.linalg.inv(affine)
     
@@ -86,9 +89,16 @@ def preprocess_batch(
     transformed_images_ft = jnp.fft.rfft2(transformed_images)
     transformed_images_ft /= box_size_x*box_size_y
     
+    
+    
     wiener_corrected_images_ft = (transformed_images_ft*ctf_images) / (np.square(ctf_images) + 0.1*np.mean(np.square(ctf_images), axis=(-1, -2), keepdims=True))
     wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
 
+    fig, (ax1, ax2) = plt.subplots(2)
+    ax1.imshow(wiener_corrected_images[ mirrors].sum(axis=0))
+    ax2.imshow(wiener_corrected_images[~mirrors].sum(axis=0))
+    plt.show()
+    
     #pca = sklearn.decomposition.PCA(n_components=2)
     #y = pca.fit_transform(wiener_corrected_images.reshape(len(wiener_corrected_images), -1))
     #plt.imshow(pca.components_[1].reshape(wiener_corrected_images.shape[-2:]))
@@ -96,8 +106,8 @@ def preprocess_batch(
     #plt.scatter(y[:,0], y[:,1])
     #plt.show()
 
-    plt.imshow(wiener_corrected_images[:,:box_size_y,:box_size_x].sum(axis=0))
-    plt.show()
+    #plt.imshow(wiener_corrected_images[:,:box_size_y,:box_size_x].sum(axis=0))
+    #plt.show()
     return (transformed_images_ft, ctf_images)
     
 
@@ -132,7 +142,7 @@ def process_direction(
         batch0_indices = indices[start0:end0]
     
         batch0_images, batch0_ctfs = preprocess_batch(
-            reference_direction=direction_matrix,
+            reference_matrix=direction_matrix,
             image_locations=image_locations,
             rotations=rotations,
             shifts=shifts,
@@ -142,7 +152,7 @@ def process_direction(
             ctf_context=ctf_context,
             padded_box_size=padded_box_size
         )
-        batch0_ctfs = frequency_mask*batch0_ctfs
+        #batch0_ctfs = frequency_mask*batch0_ctfs
     
         start1 = 0
         while start1 < start0:
@@ -160,7 +170,7 @@ def process_direction(
                 ctf_context=ctf_context,
                 padded_box_size=padded_box_size
             )
-            batch1_ctfs = frequency_mask*batch1_ctfs
+            #batch1_ctfs = frequency_mask*batch1_ctfs
             
             tile_distances2 = analysis.crossed_pairwise_distance2(
                 batch0_images,
@@ -181,12 +191,15 @@ def process_direction(
 
         start0 = end0
     
-    sigma2 = 1
+    #plt.hist(distances2.flatten())
+    #plt.show()
     
-    spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=2, affinity='precomputed')
-    affinity = jnp.exp((-0.5/sigma2)*distances2)
-    y = spectral_embedding.fit_transform(affinity)
-    #plt.scatter(y[:,-1], y[:,-2])
+    #spectral_embedding = sklearn.manifold.SpectralEmbedding(n_components=2, affinity='precomputed')
+    #sigma2 = 100
+    #affinity = jnp.exp((-0.5/sigma2)*distances2)
+    
+    #y = spectral_embedding.fit_transform(affinity)
+    #plt.scatter(y[:,0], y[:,1])
     #plt.show()
 
     
@@ -231,8 +244,8 @@ def run(args: argparse.Namespace):
     )
     directions = geometry.sample_projection_directions(direction_count)
     direction_vectors = geometry.spherical_to_cartesian(
-        directions[:,0],
-        directions[:,1]
+        -directions[:,0],
+        -directions[:,1]
     )
     groups = geometry.group_projection_directions(
         rotations[:,2,:],
