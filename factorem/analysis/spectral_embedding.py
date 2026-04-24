@@ -151,7 +151,7 @@ class SpectralEmbedding(Processor):
         if kernel == 'median':
             self.kernel = _median_scaling_kernel
         elif kernel == 'local':
-            self.kernel = partial(_local_scaling_kernel, k=k)
+            self.kernel = partial(_local_scaling_kernel, k=(k or 7))
         elif kernel == 'rbf':
             self.kernel = partial(_radial_basis_function, sigma2=sigma2)
         else:

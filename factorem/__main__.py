@@ -6,6 +6,7 @@ import sys
 import math
 import matplotlib.pyplot as plt
 import jax
+import scipy.sparse
 
 from . import geometry
 from . import image
@@ -95,6 +96,7 @@ def run(args: argparse.Namespace):
     defocus_u = np.asarray(particles_md['rlnDefocusU'])
     defocus_v = np.asarray(particles_md['rlnDefocusV'])
     defocus = 0.5*(defocus_u + defocus_v)
+    image_count = len(image_locations)
     
     direction_count =  geometry.estimate_projection_direction_count(
         math.radians(args.angular_spacing)
@@ -124,35 +126,49 @@ def run(args: argparse.Namespace):
         amplitude_contrast=amplitude_contrast
     )
     
+    component_count = 5
     processor: analysis.Processor = None
     if False:
-        processor = analysis.PCA(n_components=5)
+        processor = analysis.PCA(n_components=component_count)
     else:
         processor = analysis.SpectralEmbedding(
-            n_components=5,
+            n_components=component_count,
             batch_size=args.batch_size,
             kernel='median'
         )
     
     #frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
+    sparsity = scipy.sparse.lil_array((image_count, direction_count), dtype=np.uint)
+    data = scipy.sparse.lil_array((image_count, direction_count*component_count))
     for i in range(direction_count):
         if len(groups[i]) < 100:
             print(f'Skipping direction {i}')
             continue
         
+        indices=groups[i]
         y = processor.fit_transform(
             loader=loader,
-            indices=groups[i],
+            indices=indices,
             direction_matrix=direction_matrices[i]
         )
         y = jax.device_get(y)
         
-        #fig = plt.figure()
-        #ax = fig.add_subplot(projection='3d')
-        #ax.scatter(y[:,0], y[:,1], y[:,2])
-        #plt.show()
-    
+        start = i*component_count
+        end = start + component_count
+        sparsity[indices,i] = 1
+        data[indices,start:end] = np.asarray(y)
         
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(y[:,0], y[:,1], y[:,2])
+        plt.show()
+
+    sparsity = sparsity.tocsc()
+    data = data.tocsc()
+    adjacency = sparsity.T @ sparsity
+    similarities = data.T @ data
+    similarities /= abs(similarities).max()
+    
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
     run(args)
