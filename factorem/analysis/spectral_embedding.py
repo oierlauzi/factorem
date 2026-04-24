@@ -1,13 +1,14 @@
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Union, Optional
 import jax
 import jax.numpy as jnp
 import numpy as np
-import sklearn.manifold
 
 from .data_loader import DataLoader
 from .processor import Processor
 
+@jax.jit
 def _crossed_pairwise_distance2(
     left_images: jax.Array,
     left_ctfs: jax.Array,
@@ -33,6 +34,7 @@ def _crossed_pairwise_distance2(
 
     return term1 + term2 - 2*term3
 
+@jax.jit
 def _self_pairwise_distance2(
     images: jax.Array,
     ctfs: jax.Array
@@ -114,24 +116,36 @@ def _median_scaling_kernel(distance2: jax.Array) -> jax.Array:
     sigma2 = jnp.median(flat_distances2)
     return _radial_basis_function(distance2=distance2, sigma2=sigma2)
 
-def _compute_laplacian(affinity: jnp.ndarray) -> jnp.ndarray:
+@partial(jax.jit, static_argnames=('n_components',))
+def _spectral_embedding(affinity: jax.Array, n_components: int) -> jax.Array:
+    # Symmetric normalized Laplacian: L_sym = I - D^(-1/2) W D^(-1/2)
     degree = affinity.sum(axis=-1)
+    d_inv_sqrt = jax.lax.rsqrt(degree)
+    normalized = affinity * d_inv_sqrt[:, None] * d_inv_sqrt[None, :]
+    n = affinity.shape[0]
     indices = jnp.arange(affinity.shape[0])
-    return (-affinity).at[indices, indices].add(degree)
+    laplacian = (-normalized).at[indices, indices].add(1)
+    # Symmetrize to kill any numerical asymmetry before eigh.
+    laplacian = 0.5 * (laplacian + laplacian.T)
+
+    # eigh returns eigenvalues in ascending order. The smallest is ~0 with a
+    # trivial eigenvector; drop it and take the next n_components.
+    _, eigvecs = jnp.linalg.eigh(laplacian)
+    embedding = eigvecs[:, 1:n_components + 1]
+
+    # Recover the random-walk embedding from the symmetric-normalized one.
+    return embedding * d_inv_sqrt[:, None]
 
 class SpectralEmbedding(Processor):
     def __init__(
-        self, 
-        n_components: int, 
+        self,
+        n_components: int,
         batch_size: int,
-        kernel: str = 'median', 
+        kernel: str = 'median',
         k: Optional[int] = None,
         sigma2: Optional[float] = None
     ):
-        self.se = sklearn.manifold.SpectralEmbedding(
-            n_components=n_components, 
-            affinity='precomputed'
-        )
+        self.n_components = n_components
         self.batch_size = batch_size
         
         if kernel == 'median':
@@ -143,7 +157,7 @@ class SpectralEmbedding(Processor):
         else:
             raise ValueError('Invalid kernel')
         
-    def embed(
+    def fit_transform(
         self, 
         loader: DataLoader, 
         indices: np.ndarray, 
@@ -156,5 +170,5 @@ class SpectralEmbedding(Processor):
             batch_size=self.batch_size
         )
         
-        affinity = _median_scaling_kernel(distances2)
-        return self.se.fit_transform(jax.device_get(affinity))
+        affinity = self.kernel(distances2)
+        return _spectral_embedding(affinity, self.n_components)

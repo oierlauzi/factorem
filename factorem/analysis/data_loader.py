@@ -1,3 +1,5 @@
+from functools import partial
+
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -10,7 +12,7 @@ def _pad_images_2d(images: jnp.ndarray, padded_box_size: int):
     batch_shape = images.shape[:-2]
     original_box_size_y, original_box_size_x = images.shape[-2:]
     result_shape = batch_shape + (padded_box_size, padded_box_size)
-    
+
     result = jnp.zeros(result_shape, dtype=images.dtype)
     return result.at[...,:original_box_size_y,:original_box_size_x].set(images)
 
@@ -18,23 +20,34 @@ def _apply_affine_single(image, matrix_inv):
     H, W = image.shape
     y, x = jnp.mgrid[0:H, 0:W]
     coords = jnp.stack([x.ravel(), y.ravel(), jnp.ones_like(x.ravel())])
-    
+
     src_coords = matrix_inv @ coords
     src_x = src_coords[0, :] / src_coords[2, :]
     src_y = src_coords[1, :] / src_coords[2, :]
-    
+
     sample_coords = jnp.stack([src_y.reshape(H, W), src_x.reshape(H, W)])
     transformed = jax.scipy.ndimage.map_coordinates(
-        image, 
-        sample_coords, 
-        order=1, 
-        mode='constant', 
+        image,
+        sample_coords,
+        order=1,
+        mode='constant',
         cval=0.0
     )
-    
+
     return transformed
 
 _apply_affine_batch = jax.vmap(_apply_affine_single, in_axes=(0, 0))
+
+@partial(jax.jit, static_argnames=('padded_box_size',))
+def _warp_pad_rfft2(
+    images: jax.Array,
+    affine_inv: jax.Array,
+    norm: jax.Array,
+    padded_box_size: int,
+) -> jax.Array:
+    transformed = _apply_affine_batch(images, affine_inv)
+    padded = _pad_images_2d(transformed, padded_box_size)
+    return jnp.fft.rfft2(padded) / norm
 
 class DataLoader:
     def __init__(
@@ -70,34 +83,29 @@ class DataLoader:
         batch_rotations = self.rotations[indices]
         batch_shifts = self.shifts[indices]
         batch_defocus = self.defocus[indices]
+        
         _, box_size_y, box_size_x = batch_images.shape
         centre = np.array((box_size_y/2, box_size_x/2))
-        
-        ctf_images = ctf.compute_ctf_image_2d(
-            jnp.asarray(batch_defocus), 
-            self.padded_box_size, 
-            self.ctf_context
-        )
-        
         matrix_2d = geometry.compute_in_plane_alignment(
-            reference_transform, 
+            reference_transform,
             batch_rotations
         )
         affine = geometry.make_affine(matrix_2d, batch_shifts, centre)
-        affine = np.linalg.inv(affine)
+        affine_inv = np.linalg.inv(affine).astype(np.float32)
 
-        transformed_images = _apply_affine_batch(
-            batch_images, 
-            jax.device_put(affine)
+        norm = jnp.float32(box_size_x * box_size_y)
+        transformed_images_ft = _warp_pad_rfft2(
+            batch_images,
+            jax.device_put(affine_inv),
+            norm,
+            self.padded_box_size,
         )
-        transformed_images = _pad_images_2d(
-            transformed_images, 
-            self.padded_box_size
+
+        ctf_images = ctf.compute_ctf_image_2d(
+            jax.device_put(batch_defocus),
+            self.padded_box_size,
+            self.ctf_context
         )
-        
-        transformed_images_ft = jnp.fft.rfft2(transformed_images)
-        transformed_images_ft /= box_size_x*box_size_y
-        
 
         return (transformed_images_ft, ctf_images)
     

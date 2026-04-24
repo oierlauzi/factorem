@@ -1,3 +1,5 @@
+from functools import partial
+import jax
 import jax.numpy as jnp
 
 from .ctf_context import CtfContext
@@ -9,6 +11,7 @@ def _frequency2_grid_2d(box_size: int, pixel_size: float):
     ky = jnp.fft.fftfreq(box_size, d=pixel_size)
     return jnp.square(kx[None,:]) + jnp.square(ky[:,None])
 
+@partial(jax.jit, static_argnames=('box_size', "context"))
 def compute_ctf_image_2d(
     defocus_a: jnp.ndarray,
     box_size: int,

@@ -5,6 +5,7 @@ import numpy as np
 import sys
 import math
 import matplotlib.pyplot as plt
+import jax
 
 from . import geometry
 from . import image
@@ -80,16 +81,19 @@ def run(args: argparse.Namespace):
     
     image_locations = particles_md['rlnImageName'].map(image.ImageLocation.parse)
     rotations = geometry.euler_zyz_to_matrix(
-        np.deg2rad(particles_md['rlnAngleRot']),
-        np.deg2rad(particles_md['rlnAngleTilt']),
-        np.deg2rad(particles_md['rlnAnglePsi']),
+        np.deg2rad(np.asarray(particles_md['rlnAngleRot'])),
+        np.deg2rad(np.asarray(particles_md['rlnAngleTilt'])),
+        np.deg2rad(np.asarray(particles_md['rlnAnglePsi'])),
     )
     shifts = (1/pixel_size) * np.stack(
-        (particles_md['rlnOriginXAngst'], particles_md['rlnOriginYAngst']), 
+        (
+            np.asarray(particles_md['rlnOriginXAngst']), 
+            np.asarray(particles_md['rlnOriginYAngst'])
+        ), 
         axis=1
     )
-    defocus_u = particles_md['rlnDefocusU']
-    defocus_v = particles_md['rlnDefocusV']
+    defocus_u = np.asarray(particles_md['rlnDefocusU'])
+    defocus_v = np.asarray(particles_md['rlnDefocusV'])
     defocus = 0.5*(defocus_u + defocus_v)
     
     direction_count =  geometry.estimate_projection_direction_count(
@@ -136,14 +140,17 @@ def run(args: argparse.Namespace):
             print(f'Skipping direction {i}')
             continue
         
-        y = processor.embed(
+        y = processor.fit_transform(
             loader=loader,
             indices=groups[i],
             direction_matrix=direction_matrices[i]
         )
+        y = jax.device_get(y)
         
-        plt.scatter(y[:,0], y[:,1])
-        plt.show()
+        #fig = plt.figure()
+        #ax = fig.add_subplot(projection='3d')
+        #ax.scatter(y[:,0], y[:,1], y[:,2])
+        #plt.show()
     
         
 def main(argv=None) -> Optional[int]:

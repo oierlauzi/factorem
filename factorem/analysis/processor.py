@@ -4,7 +4,7 @@ import jax
 from .data_loader import DataLoader
 
 class Processor:
-    def embed(
+    def fit_transform(
         self, 
         loader: DataLoader, 
         indices: np.ndarray, 
