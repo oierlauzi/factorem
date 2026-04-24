@@ -11,6 +11,7 @@ import scipy.sparse
 from . import geometry
 from . import image
 from . import analysis
+from . import synchronization
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -68,7 +69,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help='Padding factor to increase spectral resolution'
     )
 
-
     return parser.parse_args(argv)
 
 def run(args: argparse.Namespace):
@@ -79,6 +79,7 @@ def run(args: argparse.Namespace):
     amplitude_contrast = optics.at[0, 'rlnAmplitudeContrast']
     spherical_aberration = optics.at[0, 'rlnSphericalAberration']
     voltage = optics.at[0, 'rlnVoltage']
+    box_size = optics.at[0, 'rlnImageSize']
     
     image_locations = particles_md['rlnImageName'].map(image.ImageLocation.parse)
     rotations = geometry.euler_zyz_to_matrix(
@@ -113,13 +114,28 @@ def run(args: argparse.Namespace):
         math.radians(args.group_angle)
     )
     
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    group_sizes = np.array(list(map(len, groups)))
+    ax.scatter(
+        direction_matrices[:,2,0],
+        direction_matrices[:,2,1],
+        direction_matrices[:,2,2],
+        c=group_sizes
+    )
+    plt.show()
+    """
+
+    padded_box_size = round(args.padding_factor*box_size)
+    frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
     loader = analysis.DataLoader(
         image_locations=image_locations,
         image_prefix=args.prefix,
         rotations=rotations,
         shifts=shifts,
         defocus=defocus,
-        padded_box_size=round(args.padding_factor*288), # TODO
+        padded_box_size=padded_box_size,
         pixel_size_a=pixel_size,
         voltage_kv=voltage,
         spherical_aberration_mm=spherical_aberration,
@@ -137,7 +153,6 @@ def run(args: argparse.Namespace):
             kernel='median'
         )
     
-    #frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
     sparsity = scipy.sparse.lil_array((image_count, direction_count), dtype=np.uint)
     data = scipy.sparse.lil_array((image_count, direction_count*component_count))
     for i in range(direction_count):
@@ -158,16 +173,27 @@ def run(args: argparse.Namespace):
         sparsity[indices,i] = 1
         data[indices,start:end] = np.asarray(y)
         
-        fig = plt.figure()
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(y[:,0], y[:,1], y[:,2])
-        plt.show()
+        #fig = plt.figure()
+        #ax = fig.add_subplot(projection='3d')
+        #ax.scatter(y[:,0], y[:,1], y[:,2])
+        #plt.show()
 
     sparsity = sparsity.tocsc()
     data = data.tocsc()
     adjacency = sparsity.T @ sparsity
     similarities = data.T @ data
     similarities /= abs(similarities).max()
+    
+    synchronization_transform, values = synchronization.burer_monteiro_ortho_group_synchronization(
+        similarities,
+        synchronization.burer_monteiro_random_start(
+            direction_count,
+            component_count
+        )
+    )
+    plt.plot(values)
+    plt.show()
+    
     
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
