@@ -116,6 +116,31 @@ def _compute_graph_laplacian(
 
     return laplacian, d_inv_sqrt
 
+@partial(jax.jit, static_argnames=('n_components',))
+def _spectral_embedding(
+    affinity: jax.Array,
+    valid: jax.Array,
+    n_components: int
+) -> jax.Array:
+    # identity whose eigenvalues sort far above the ones we extract.
+    pair_valid = valid[:, None] & valid[None, :]
+    affinity = jnp.where(pair_valid, affinity, 0.0)
+
+    degree = affinity.sum(axis=-1)
+    safe_degree = jnp.where(valid, degree, 1.0)
+    d_inv_sqrt = jnp.where(valid, jax.lax.rsqrt(safe_degree), 0.0)
+
+    normalized = affinity * d_inv_sqrt[:, None] * d_inv_sqrt[None, :]
+    diag = jnp.where(valid, 1.0, 1e6)
+    indices = jnp.arange(affinity.shape[0])
+    laplacian = (-normalized).at[indices, indices].add(diag)
+    laplacian = 0.5 * (laplacian + laplacian.T)
+    
+    _, eigvecs = jnp.linalg.eigh(laplacian)
+    embedding =  d_inv_sqrt[:,None] * eigvecs[:, 1:n_components + 1]
+    
+    return embedding
+
 class SpectralEmbedding(Processor):
     def __init__(
         self,
@@ -145,10 +170,6 @@ class SpectralEmbedding(Processor):
         valid = jnp.arange(n_padded) < count
         distances2 = _self_pairwise_distance2(images, ctfs)
         affinity = self.kernel(distances2, valid)
-        laplacian, d_inv_sqrt = _compute_graph_laplacian(affinity, valid)
-        
-        laplacian = laplacian[:count,:count]
-        d_inv_sqrt = d_inv_sqrt[:count]
-        _, eigvecs = jnp.linalg.eigh(laplacian)
-        embedding = eigvecs[:, 1:self.n_components + 1]
-        return embedding * d_inv_sqrt[:, None]
+        #laplacian, d_inv_sqrt = _compute_graph_laplacian(affinity, valid)
+        embedding = _spectral_embedding(affinity, valid, self.n_components)
+        return embedding[:count]

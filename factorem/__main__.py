@@ -169,7 +169,7 @@ def run(args: argparse.Namespace):
         loader=loader,
         preprocessor=preprocessor,
         processor=processor,
-        prefetch=2,
+        prefetch=4
     )
     progress = tqdm.tqdm(total=len(jobs), unit='dir')
     for job, y in runner.run(jobs):
