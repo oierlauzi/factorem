@@ -101,7 +101,7 @@ class Preprocessor:
     def process(self, host_batch: HostBatch) -> DeviceBatch:
         """H2D + preprocessing. Returns deferred ``jax.Array``s (non-blocking).
         """
-        n, box_size_x, box_size_y = host_batch.images.shape
+        n, box_size_y, box_size_x = host_batch.images.shape
         padding = (-n) % self.grain_size
 
         norm = jnp.float32(box_size_x * box_size_y)

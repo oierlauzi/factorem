@@ -1,13 +1,13 @@
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from queue import Queue
 from threading import Thread
-from typing import Any, Iterable, Iterator, Optional, Tuple
+from typing import Any, Iterable, Iterator, Tuple
 
 import jax
 import numpy as np
 
 from .data_loader import DataLoader
+from .preprocessor import Preprocessor
 from .processor import Processor
 
 
@@ -47,12 +47,14 @@ class PipelinedRunner:
     def __init__(
         self,
         loader: DataLoader,
+        preprocessor: Preprocessor,
         processor: Processor,
         prefetch: int = 2,
     ):
         if prefetch < 1:
             raise ValueError('prefetch must be >= 1')
         self._loader = loader
+        self._preprocessor = preprocessor
         self._processor = processor
         self._prefetch = prefetch
 
@@ -98,8 +100,9 @@ class PipelinedRunner:
     def _reader_loop(self, jobs: Iterable[Job], out: Queue) -> None:
         try:
             for job in jobs:
-                prepared = self._processor.prepare(
-                    self._loader, job.indices, job.direction_matrix
+                prepared = self._loader.load(
+                    job.indices,
+                    job.direction_matrix
                 )
                 out.put((job, prepared))
         except BaseException as e:
@@ -117,8 +120,13 @@ class PipelinedRunner:
                     out_q.put(item)
                     return
 
-                job, prepared = item
-                deferred = self._processor.fit_transform(prepared)
+                job, loaded = item
+                x = self._preprocessor.process(loaded)
+                deferred = self._processor.fit_transform(
+                    images=x.images_ft, 
+                    ctfs=x.ctfs, 
+                    count=x.valid_count
+                )
                 out_q.put((job, deferred))
                 
         except BaseException as e:

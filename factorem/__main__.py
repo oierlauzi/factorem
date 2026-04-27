@@ -5,7 +5,7 @@ import numpy as np
 import sys
 import math
 import matplotlib.pyplot as plt
-import jax
+import tqdm
 import scipy.sparse
 
 from . import geometry
@@ -55,12 +55,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
         type=int,
         default=100,
         help='Minimum number of particles for analysis'
-    )
-    parser.add_argument(
-        '--batch_size',
-        type=int,
-        default=256,
-        help='Number of particles processed concurrently'
     )
     parser.add_argument(
         '--padding_factor',
@@ -134,12 +128,15 @@ def run(args: argparse.Namespace):
         image_prefix=args.prefix,
         rotations=rotations,
         shifts=shifts,
-        defocus=defocus,
+        defocus=defocus
+    )
+    preprocessor = analysis.Preprocessor(
         padded_box_size=padded_box_size,
         pixel_size_a=pixel_size,
         voltage_kv=voltage,
         spherical_aberration_mm=spherical_aberration,
-        amplitude_contrast=amplitude_contrast
+        amplitude_contrast=amplitude_contrast,
+        grain_size=256
     )
     
     component_count = 5
@@ -149,34 +146,46 @@ def run(args: argparse.Namespace):
     else:
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
-            batch_size=args.batch_size,
             kernel='median'
         )
-    
-    sparsity = scipy.sparse.lil_array((image_count, direction_count), dtype=np.uint)
-    data = scipy.sparse.lil_array((image_count, direction_count*component_count))
+
+    jobs = []
     for i in range(direction_count):
-        if len(groups[i]) < 100:
+        if len(groups[i]) < args.min_particles:
             print(f'Skipping direction {i}')
             continue
-        
-        indices=groups[i]
-        y = processor.fit_transform(
-            loader=loader,
-            indices=indices,
-            direction_matrix=direction_matrices[i]
+
+        jobs.append(
+            analysis.Job(
+                key=i,
+                indices=groups[i],
+                direction_matrix=direction_matrices[i],
+            )
         )
-        y = jax.device_get(y)
-        
-        start = i*component_count
+
+    sparsity = scipy.sparse.lil_array((image_count, direction_count), dtype=np.uint)
+    data = scipy.sparse.lil_array((image_count, direction_count*component_count))
+    runner = analysis.PipelinedRunner(
+        loader=loader,
+        preprocessor=preprocessor,
+        processor=processor,
+        prefetch=2,
+    )
+    progress = tqdm.tqdm(total=len(jobs), unit='dir')
+    for job, y in runner.run(jobs):
+        i = job.key
+        start = i * component_count
         end = start + component_count
-        sparsity[indices,i] = 1
-        data[indices,start:end] = np.asarray(y)
+        sparsity[job.indices, i] = 1
+        data[job.indices, start:end] = np.asarray(y)
+        progress.update(1)
         
         #fig = plt.figure()
         #ax = fig.add_subplot(projection='3d')
         #ax.scatter(y[:,0], y[:,1], y[:,2])
         #plt.show()
+    progress.close()
+        
 
     sparsity = sparsity.tocsc()
     data = data.tocsc()
