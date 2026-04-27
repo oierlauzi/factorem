@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 
 from .. import ctf
+from .. import analysis
 from .data_loader import HostBatch
 
 def _pad_0(x: jax.Array, padding: int) -> jax.Array:
@@ -87,7 +88,8 @@ class Preprocessor:
         voltage_kv: float,
         spherical_aberration_mm: float,
         amplitude_contrast: float,
-        grain_size: int
+        grain_size: int,
+        max_freq: float
     ):
         self.padded_box_size = padded_box_size
         self.grain_size = grain_size
@@ -96,6 +98,11 @@ class Preprocessor:
             spherical_aberration_mm=spherical_aberration_mm,
             voltage_kv=voltage_kv,
             q0=amplitude_contrast,
+        )
+        self.frequency_mask = analysis.butterworth_2d(
+            box_size=padded_box_size, 
+            cutoff=max_freq, 
+            order=2
         )
 
     def process(self, host_batch: HostBatch) -> DeviceBatch:
@@ -111,7 +118,8 @@ class Preprocessor:
             norm,
             self.padded_box_size,
         )
-
+        images_ft = self.frequency_mask*images_ft
+        
         ctfs = ctf.compute_ctf_image_2d(
             _pad_0(jax.device_put(host_batch.defocus), padding),
             self.padded_box_size,

@@ -122,7 +122,6 @@ def run(args: argparse.Namespace):
     """
 
     padded_box_size = round(args.padding_factor*box_size)
-    frequency_mask = analysis.butterworth_2d(padded_box_size, 0.25, 2)
     loader = analysis.DataLoader(
         image_locations=image_locations,
         image_prefix=args.prefix,
@@ -136,6 +135,7 @@ def run(args: argparse.Namespace):
         voltage_kv=voltage,
         spherical_aberration_mm=spherical_aberration,
         amplitude_contrast=amplitude_contrast,
+        max_freq=0.25,
         grain_size=256
     )
     
@@ -146,7 +146,7 @@ def run(args: argparse.Namespace):
     else:
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
-            kernel='median'
+            kernel='local'
         )
 
     jobs = []
@@ -180,10 +180,10 @@ def run(args: argparse.Namespace):
         data[job.indices, start:end] = np.asarray(y)
         progress.update(1)
         
-        #fig = plt.figure()
-        #ax = fig.add_subplot(projection='3d')
-        #ax.scatter(y[:,0], y[:,1], y[:,2])
-        #plt.show()
+        fig = plt.figure()
+        ax = fig.add_subplot(projection='3d')
+        ax.scatter(y[:,0], y[:,1], y[:,2])
+        plt.show()
     progress.close()
         
 

@@ -1,28 +1,49 @@
+from functools import partial
 import jax
 import jax.numpy as jnp
-import numpy as np
 import sklearn.decomposition
 
-from .data_loader import DataLoader
 from .processor import Processor
+
+@jax.jit
+def _wiener_ctf_correct(
+    images_ft: jax.Array,
+    ctfs: jax.Array
+) -> jax.Array:
+    ctfs2 = jnp.square(ctfs)
+    wiener_factor = 0.1 * jnp.mean(ctfs2, axis=(-1, -2), keepdims=True)
+    wiener_corrected_images_ft = (images_ft * ctfs) / (ctfs2 + wiener_factor)
+    return jnp.fft.irfft2(wiener_corrected_images_ft)
+
+@jax.jit
+def _mean_center(
+    x: jax.Array,
+    valid: jax.Array
+) -> jax.Array:
+    valid = valid[:,None]
+    mean = x.mean(axis=0, where=valid)
+    return x - mean
 
 class PCA(Processor):
     def __init__(
-        self, 
+        self,
         n_components: int
     ):
-        self.pca = sklearn.decomposition.PCA(n_components=n_components)
+        self.n_components = n_components
 
-    def embed(
-        self, 
-        loader: DataLoader, 
-        indices: np.ndarray, 
-        direction_matrix: np.ndarray
+    def fit_transform(
+        self,
+        images: jax.Array,
+        ctfs: jax.Array,
+        count: int
     ) -> jax.Array:
-        images, ctfs = loader.load(indices, direction_matrix)
-        ctfs2 = jnp.square(ctfs)
-        wiener_factor = 0.1*np.mean(ctfs2, axis=(-1, -2), keepdims=True)
-        wiener_corrected_images_ft = (images*ctfs) / (ctfs2 + wiener_factor)
-        wiener_corrected_images = jnp.fft.irfft2(wiener_corrected_images_ft)
+        n_padded = images.shape[0]
+        wiener_corrected_images = _wiener_ctf_correct(images, ctfs)
+        
+        valid = jnp.arange(n_padded) < count
         x = wiener_corrected_images.reshape(len(wiener_corrected_images), -1)
-        return self.pca.fit_transform(jax.device_get(x))
+        x = _mean_center(x, valid)
+        u, s, _ = jnp.linalg.svd(x[:count], full_matrices=False)
+        y = u[:,:self.n_components] * s[:self.n_components]
+        return y
+    
