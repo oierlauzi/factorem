@@ -149,6 +149,11 @@ class BatchReader:
         mrc = self._read_file(filename)
         data = mrc.data
 
+        if data.ndim == 4:
+            if data.shape[1] != 1:
+                raise RuntimeError('Expected image stack')
+            data = data[:,0,:,:]
+
         if mrc.is_image_stack() or mrc.is_volume_stack():
             if index_slice is None:
                 raise RuntimeError(

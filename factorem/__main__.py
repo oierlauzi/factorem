@@ -180,10 +180,10 @@ def run(args: argparse.Namespace):
         data[job.indices, start:end] = np.asarray(y)
         progress.update(1)
         
-        fig = plt.figure()
-        ax = fig.add_subplot(projection='3d')
-        ax.scatter(y[:,0], y[:,1], y[:,2])
-        plt.show()
+        #fig = plt.figure()
+        #ax = fig.add_subplot(projection='3d')
+        #ax.scatter(y[:,0], y[:,1], y[:,2])
+        #plt.show()
     progress.close()
         
 
