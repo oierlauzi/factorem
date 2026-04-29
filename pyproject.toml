@@ -18,7 +18,8 @@ dependencies = [
     "starfile",
     "numpy",
     "pandas",
-    "tqdm"
+    "tqdm",
+    "sklearn"
 ]
 
 [project.optional-dependencies]
