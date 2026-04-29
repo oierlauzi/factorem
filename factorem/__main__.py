@@ -149,6 +149,8 @@ def run(args: argparse.Namespace):
             kernel='local'
         )
 
+    groups.sort(key=len, reverse=True) # TODO remove
+
     jobs = []
     for i in range(direction_count):
         if len(groups[i]) < args.min_particles:
