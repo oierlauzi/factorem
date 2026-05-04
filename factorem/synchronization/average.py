@@ -3,122 +3,118 @@ import numpy as np
 import scipy.sparse
 
 def _compute_averages(
-    measurements: Sequence[scipy.sparse.csc_array], 
+    measurements: scipy.sparse.bsr_array, 
     gains: np.ndarray, 
-    sigma2: np.ndarray
+    sigma2: np.ndarray,
+    m: int,
+    p: int
 ) -> np.ndarray:
-    p = len(measurements)
-    n, m = measurements[0].shape
-
+    n = measurements.shape[1]
     numerator = np.zeros((n, p))
     denominator = np.zeros((n, p))
-    for k in range(p):
-        plane = measurements[k]
-        for j in range(m):
-            gain = gains[j,k]
-            sigma2 = sigma2[j,k]
-            start = plane.indptr[j]
-            end = plane.indptr[j+1]
-            indices = plane.indices[start:end]
-            values = plane.data[start:end]
-            
-            numerator[indices,k] += gain / sigma2 * values
-            denominator[indices,k] += np.square(gain) / sigma2
+    for i in range(m):
+        gain = gains[i]
+        noise2 = sigma2[i]
+        start = measurements.indptr[i]
+        end = measurements.indptr[i+1]
+        indices = measurements.indices[start:end]
+        values = measurements.data[start:end,:,0]
+        
+        numerator[indices] += gain / noise2 * values
+        denominator[indices] += np.square(gain) / noise2
 
     return numerator / denominator
 
 def _compute_gains(
-    measurements: Sequence[scipy.sparse.csc_array], 
+    measurements: scipy.sparse.bsr_array, 
     averages: np.ndarray, 
-    sigma2: np.ndarray
+    sigma2: np.ndarray,
+    m: int,
+    p: int
 ) -> np.ndarray:
-    p = len(measurements)
-    n, m = measurements[0].shape
-    
-    result = np.empty((m, p))
-    correlations = np.empty(m)
-    counts = np.empty(m, dtype=np.int64)
-    for k in range(p):
-        plane = measurements[k]
-        power = np.dot(averages[:,k], averages[:,k]) / n
-        sigma2 = sigma2[:,k]
-        for j in range(m):
-            start = plane.indptr[j]
-            end = plane.indptr[j+1]
-            indices = plane.indices[start:end]
-            y = plane.data[start:end]
-            x = averages[indices,k]
-            
-            correlations[j] = np.dot(x, y) / len(x)
-            counts[j] = len(x)
+    power = np.mean(averages*averages, axis=0)
 
-        l = (np.sum(correlations) - m*power) / np.sum(sigma2/counts)
-        result[:,k] = (correlations - l*sigma2/counts) / power
+    correlations = np.empty((m, p))
+    counts = np.empty((m, 1), dtype=np.int64)
+    for i in range(m):
+        start = measurements.indptr[i]
+        end = measurements.indptr[i+1]
+        indices = measurements.indices[start:end]
+        y = measurements.data[start:end,:,0]
+        x = averages[indices]
         
-    return result
+        correlations[i] = np.mean(x*y, axis=0)
+        counts[i] = len(x)
+
+    l = (np.sum(correlations, axis=0) - m*power) / np.sum(sigma2/counts, axis=0)
+    return (correlations - l*sigma2/counts) / power
 
 def _compute_sigma2(
-    measurements: Sequence[scipy.sparse.csc_array], 
+    measurements: scipy.sparse.bsr_array, 
     averages: np.ndarray, 
-    gains: np.ndarray
+    gains: np.ndarray,
+    m: int,
+    p: int
 ) -> np.ndarray:
-    p = len(measurements)
-    _, m = measurements[0].shape
-        
     result = np.empty((m, p))
-    for k in range(p):
-        plane = measurements[k]
-        for j in range(m):
-            gain = gains[j,k]
-            start = plane.indptr[j]
-            end = plane.indptr[j+1]
-            indices = plane.indices[start:end]
-            y = plane.data[start:end]
-            x = averages[indices,k]
-            
-            error = gain*x - y
-            result[j,k] = np.dot(error, error) / len(error)
+
+    for i in range(m):
+        gain = gains[i]
+        start = measurements.indptr[i]
+        end = measurements.indptr[i+1]
+        indices = measurements.indices[start:end]
+        y = measurements.data[start:end,:,0]
+        x = averages[indices]
+        
+        error = gain*x - y
+        result[i] = np.mean(error*error, axis=0)
 
     return result
 
 def _average_embedding_component(
-    measurements: Sequence[scipy.sparse.csc_array], 
+    measurements = scipy.sparse.bsr_array,
     max_iter: int = 16
 ) -> np.ndarray:
-    m = len(measurements)
-    p = measurements[0].shape[1]
+    p = measurements.blocksize[0]
+    m = measurements.shape[0] // p
+    n = measurements.shape[1]
     
-    # Alternating maximization
     gains = np.ones((m, p))
-    noise2 = np.ones((m, p))
+    sigma2 = np.ones((m, p))
     for _ in range(max_iter):
-        averages = _compute_averages(measurements, gains, noise2)
-        gains = _compute_gains(measurements, averages, noise2)
-        noise2 = _compute_sigma2(measurements, averages, gains)
+        averages = _compute_averages(measurements, gains, sigma2, m, p)
+        gains = _compute_gains(measurements, averages, sigma2, m, p)
+        sigma2 = _compute_sigma2(measurements, averages, gains, m, p)
 
-    return  _compute_averages(measurements, gains, noise2)
+    return  _compute_averages(measurements, gains, sigma2, m, p)
 
+def _correct_embedding_orientations(
+    embeddings: scipy.sparse.bsr_array, 
+    transforms: np.ndarray
+) -> scipy.sparse.bsr_array:
+    n = embeddings.shape[1]
+    m, _, k = transforms.shape
+    data = np.empty((len(embeddings.data), k, 1))
+    indices = embeddings.indices
+    indptr = embeddings.indptr
+    for i, transform in enumerate(transforms):
+        start = indptr[i]
+        end = indptr[i+1]
+        
+        np.matmul(
+            transform.T,
+            embeddings.data[start:end],
+            out=data[start:end]
+        )
+    
+    return scipy.sparse.bsr_array(
+        (data, indices, indptr),
+        shape=(m*k, n)
+    )
+    
 def average_embeddings(
-    embeddings: scipy.sparse.csc_array, 
+    embeddings: scipy.sparse.bsr_array, 
     transforms: np.ndarray
 ) -> np.ndarray:
-    n_directions, n_analysis_components, n_total_components = transforms.shape
-
-    transformed_embeddings = []
-    for i in range(n_directions):
-        start = i*n_analysis_components
-        end = start + n_analysis_components
-        directional_embedding = embeddings[:,start:end]
-
-         # (transforms.T @ directional_embedding.T).T
-        transformed_embeddings.append(directional_embedding @ transforms[i])
-    
-    print(type(transformed_embeddings[0]))
-    
-    x = []    
-    for i in range(n_total_components):
-        columns = (m.getcol(i) for m in transformed_embeddings)
-        print(transformed_embeddings[0].getcol(i))
-        x.append(scipy.sparse.hstack(columns, format='csc'))
-
-    return _average_embedding_component(x)
+    embeddings = _correct_embedding_orientations(embeddings, transforms)
+    return _average_embedding_component(embeddings)

@@ -186,16 +186,15 @@ def run(args: argparse.Namespace):
         )
     )
     
-    """
     unified_embedding = synchronization.average_embeddings(embeddings, synchronization_transform)
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
             
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
-    ax.scatter(unified_embedding[:,0], unified_embedding[:,1], unified_embedding[:,2])
+    #fig = plt.figure()
+    #ax = fig.add_subplot(projection='3d')
+    #ax.scatter(unified_embedding[:,0], unified_embedding[:,1], unified_embedding[:,2])
+    plt.hist2d(unified_embedding[:,0], unified_embedding[:,1])
     plt.show()
-    """
     
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
