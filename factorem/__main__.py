@@ -6,12 +6,13 @@ import sys
 import math
 import matplotlib.pyplot as plt
 import tqdm
-import scipy.sparse
+import sklearn.decomposition
 
 from . import geometry
 from . import image
 from . import analysis
 from . import synchronization
+from .bsr_array_builder import BsrArrayBuilder
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -107,20 +108,9 @@ def run(args: argparse.Namespace):
         direction_matrices[:,2,:],
         math.radians(args.group_angle)
     )
+    for group in groups:
+        group.sort()
     
-    """
-    fig = plt.figure()
-    ax = fig.add_subplot(projection='3d')
-    group_sizes = np.array(list(map(len, groups)))
-    ax.scatter(
-        direction_matrices[:,2,0],
-        direction_matrices[:,2,1],
-        direction_matrices[:,2,2],
-        c=group_sizes
-    )
-    plt.show()
-    """
-
     padded_box_size = round(args.padding_factor*box_size)
     loader = analysis.DataLoader(
         image_locations=image_locations,
@@ -149,6 +139,7 @@ def run(args: argparse.Namespace):
             kernel='local'
         )
 
+    
     groups.sort(key=len, reverse=True) # TODO remove
 
     jobs = []
@@ -165,8 +156,7 @@ def run(args: argparse.Namespace):
             )
         )
 
-    sparsity = scipy.sparse.lil_array((image_count, direction_count), dtype=np.uint)
-    data = scipy.sparse.lil_array((image_count, direction_count*component_count))
+    builder = BsrArrayBuilder((len(jobs)*component_count, image_count))
     runner = analysis.PipelinedRunner(
         loader=loader,
         preprocessor=preprocessor,
@@ -176,23 +166,16 @@ def run(args: argparse.Namespace):
     progress = tqdm.tqdm(total=len(jobs), unit='dir')
     for job, y in runner.run(jobs):
         i = job.key
-        start = i * component_count
-        end = start + component_count
-        sparsity[job.indices, i] = 1
-        data[job.indices, start:end] = np.asarray(y)
+        indices = groups[i]
+        assert np.all(indices[:-1] < indices[1:])
+        for j, index in enumerate(indices):
+            builder.add_block(index, np.asarray(y[j,:,None]))
+        builder.next_block_row()
         progress.update(1)
-        
-        #fig = plt.figure()
-        #ax = fig.add_subplot(projection='3d')
-        #ax.scatter(y[:,0], y[:,1], y[:,2])
-        #plt.show()
     progress.close()
-        
 
-    sparsity = sparsity.tocsc()
-    data = data.tocsc()
-    adjacency = sparsity.T @ sparsity
-    similarities = data.T @ data
+    embeddings = builder.build()
+    similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
     
     synchronization_transform, values = synchronization.burer_monteiro_ortho_group_synchronization(
@@ -202,9 +185,17 @@ def run(args: argparse.Namespace):
             component_count
         )
     )
-    plt.plot(values)
-    plt.show()
     
+    """
+    unified_embedding = synchronization.average_embeddings(embeddings, synchronization_transform)
+    pca = sklearn.decomposition.PCA(n_components=component_count)
+    unified_embedding = pca.fit_transform(unified_embedding)
+            
+    fig = plt.figure()
+    ax = fig.add_subplot(projection='3d')
+    ax.scatter(unified_embedding[:,0], unified_embedding[:,1], unified_embedding[:,2])
+    plt.show()
+    """
     
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)

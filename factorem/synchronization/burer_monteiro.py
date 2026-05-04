@@ -8,7 +8,7 @@ def _orthogonalize_matrices(matrices: np.ndarray, special: bool) -> np.ndarray:
     return result
 
 def _optimization_step(
-    samples: scipy.sparse.csr_matrix,
+    samples: scipy.sparse.bsr_matrix,
     transforms: np.ndarray,
     special: bool
 ) -> np.ndarray:
@@ -39,7 +39,7 @@ def burer_monteiro_random_start(
     return start
 
 def burer_monteiro_ortho_group_synchronization(
-    samples: scipy.sparse.csr_matrix,
+    samples: scipy.sparse.bsr_matrix,
     start: np.ndarray,
     special: bool = False,
     tol: float = 1e-8,
