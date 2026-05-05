@@ -129,7 +129,7 @@ def run(args: argparse.Namespace):
         grain_size=256
     )
     
-    component_count = 5
+    component_count = 4
     processor: analysis.Processor = None
     if False:
         processor = analysis.PCA(n_components=component_count)
@@ -138,9 +138,6 @@ def run(args: argparse.Namespace):
             n_components=component_count,
             kernel='local'
         )
-
-    
-    groups.sort(key=len, reverse=True) # TODO remove
 
     jobs = []
     for i in range(direction_count):
@@ -163,6 +160,7 @@ def run(args: argparse.Namespace):
         processor=processor,
         prefetch=4
     )
+    
     progress = tqdm.tqdm(total=len(jobs), unit='dir')
     for job, y in runner.run(jobs):
         i = job.key
@@ -186,14 +184,17 @@ def run(args: argparse.Namespace):
         )
     )
     
-    unified_embedding = synchronization.average_embeddings(embeddings, synchronization_transform)
+    unified_embedding = synchronization.average_embeddings(
+        embeddings, 
+        synchronization_transform
+    )
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
             
     #fig = plt.figure()
     #ax = fig.add_subplot(projection='3d')
     #ax.scatter(unified_embedding[:,0], unified_embedding[:,1], unified_embedding[:,2])
-    plt.hist2d(unified_embedding[:,0], unified_embedding[:,1])
+    plt.hist2d(unified_embedding[:,0], unified_embedding[:,1], bins=64)
     plt.show()
     
 def main(argv=None) -> Optional[int]:
