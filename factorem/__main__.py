@@ -26,12 +26,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
         metavar='STAR',
         help='Input STAR file with particle data'
     )
-    #parser.add_argument(
-    #    '-o', '--output',
-    #    required=True,
-    #    metavar='DIR',
-    #    help='Output directory'
-    #)
     parser.add_argument(
         '--angular_spacing',
         metavar='DEG',
@@ -62,6 +56,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         type=float,
         default=2.0,
         help='Padding factor to increase spectral resolution'
+    )
+    parser.add_argument(
+        '--embedding',
+        choices=['pca', 'spectral'],
+        default='pca',
+        help='Embedding method to use for dimensionality reduction'
     )
 
     return parser.parse_args(argv)
@@ -130,8 +130,7 @@ def run(args: argparse.Namespace):
     )
     
     component_count = 4
-    processor: analysis.Processor = None
-    if False:
+    if args.embedding == 'pca':
         processor = analysis.PCA(n_components=component_count)
     else:
         processor = analysis.SpectralEmbedding(
@@ -188,6 +187,7 @@ def run(args: argparse.Namespace):
         embeddings, 
         synchronization_transform
     )
+    
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
             
