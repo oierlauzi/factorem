@@ -6,8 +6,6 @@ import jax.numpy as jnp
 
 from .processor import Processor
 
-import matplotlib.pyplot as plt
-
 @jax.jit
 def _crossed_pairwise_distance2(
     left_images: jax.Array,

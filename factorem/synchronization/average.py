@@ -1,4 +1,3 @@
-from typing import Sequence
 import numpy as np
 import scipy.sparse
 
@@ -117,4 +116,6 @@ def average_embeddings(
     transforms: np.ndarray
 ) -> np.ndarray:
     embeddings = _correct_embedding_orientations(embeddings, transforms)
-    return _average_embedding_component(embeddings)
+    similarities = embeddings @ embeddings.T
+    similarities /= abs(embeddings).max()
+    return _average_embedding_component(embeddings, 0)

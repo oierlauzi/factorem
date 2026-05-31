@@ -7,6 +7,9 @@ import math
 import matplotlib.pyplot as plt
 import tqdm
 import sklearn.decomposition
+import logging
+
+logger = logging.getLogger(__name__)
 
 from . import geometry
 from . import image
@@ -67,6 +70,9 @@ def _parse_args(argv=None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 def run(args: argparse.Namespace):
+    logging.basicConfig(level=logging.INFO)
+    
+    logger.info('Reading input')
     star = starfile.read(args.input)
     particles_md = star['particles']
     optics = star['optics']
@@ -94,6 +100,7 @@ def run(args: argparse.Namespace):
     defocus = 0.5*(defocus_u + defocus_v)
     image_count = len(image_locations)
     
+    logger.info('Computing projection directions')
     direction_count =  geometry.estimate_projection_direction_count(
         math.radians(args.angular_spacing)
     )
@@ -111,6 +118,7 @@ def run(args: argparse.Namespace):
     for group in groups:
         group.sort()
     
+    logger.info('Setting up directional analysis')
     padded_box_size = round(args.padding_factor*box_size)
     loader = analysis.DataLoader(
         image_locations=image_locations,
@@ -131,8 +139,12 @@ def run(args: argparse.Namespace):
     
     component_count = 4
     if args.embedding == 'pca':
-        processor = analysis.PCA(n_components=component_count)
+        processor = analysis.PCA(
+            n_components=component_count, 
+            particle_size=box_size
+        )
     else:
+        assert args.embedding == 'spectral'
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
             kernel='local'
@@ -152,6 +164,7 @@ def run(args: argparse.Namespace):
             )
         )
 
+    logger.info('Analyzing directional groups')
     builder = BsrArrayBuilder((len(jobs)*component_count, image_count))
     runner = analysis.PipelinedRunner(
         loader=loader,
@@ -175,6 +188,7 @@ def run(args: argparse.Namespace):
     similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
     
+    logger.info('Synchronizing')
     synchronization_transform, values = synchronization.burer_monteiro_ortho_group_synchronization(
         similarities,
         synchronization.burer_monteiro_random_start(
@@ -183,11 +197,13 @@ def run(args: argparse.Namespace):
         )
     )
     
+    logger.info('Averaging')
     unified_embedding = synchronization.average_embeddings(
         embeddings, 
         synchronization_transform
     )
     
+    logger.info('Computing PCA for the output')
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
             

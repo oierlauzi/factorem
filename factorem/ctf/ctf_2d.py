@@ -4,8 +4,6 @@ import jax.numpy as jnp
 
 from .ctf_context import CtfContext
 
-import matplotlib.pyplot as plt
-
 def _frequency2_grid_2d(box_size: int, pixel_size: float):
     kx = jnp.fft.rfftfreq(box_size, d=pixel_size)
     ky = jnp.fft.fftfreq(box_size, d=pixel_size)
