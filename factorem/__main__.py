@@ -133,7 +133,7 @@ def run(args: argparse.Namespace):
         voltage_kv=voltage,
         spherical_aberration_mm=spherical_aberration,
         amplitude_contrast=amplitude_contrast,
-        max_freq=0.25,
+        max_freq=None,
         grain_size=256
     )
     

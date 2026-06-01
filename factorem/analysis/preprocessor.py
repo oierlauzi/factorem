@@ -1,3 +1,4 @@
+from typing import Optional
 from dataclasses import dataclass
 from functools import partial
 
@@ -89,7 +90,7 @@ class Preprocessor:
         spherical_aberration_mm: float,
         amplitude_contrast: float,
         grain_size: int,
-        max_freq: float
+        max_freq: Optional[float] = None
     ):
         self.padded_box_size = padded_box_size
         self.grain_size = grain_size
@@ -99,11 +100,15 @@ class Preprocessor:
             voltage_kv=voltage_kv,
             q0=amplitude_contrast,
         )
-        self.frequency_mask = analysis.butterworth_2d(
-            box_size=padded_box_size, 
-            cutoff=max_freq, 
-            order=2
-        )
+        
+        if max_freq is not None:
+            self.frequency_mask = analysis.butterworth_2d(
+                box_size=padded_box_size, 
+                cutoff=max_freq, 
+                order=2
+            )
+        else:
+            self.frequency_mask = None
 
     def process(self, host_batch: HostBatch) -> DeviceBatch:
         """H2D + preprocessing. Returns deferred ``jax.Array``s (non-blocking).
@@ -118,7 +123,9 @@ class Preprocessor:
             norm,
             self.padded_box_size,
         )
-        images_ft = self.frequency_mask*images_ft
+        
+        if self.frequency_mask is not None:
+            images_ft = self.frequency_mask * images_ft
         
         ctfs = ctf.compute_ctf_image_2d(
             _pad_0(jax.device_put(host_batch.defocus), padding),
