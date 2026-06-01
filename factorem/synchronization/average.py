@@ -118,4 +118,4 @@ def average_embeddings(
     embeddings = _correct_embedding_orientations(embeddings, transforms)
     similarities = embeddings @ embeddings.T
     similarities /= abs(embeddings).max()
-    return _average_embedding_component(embeddings, 0)
+    return _average_embedding_component(embeddings, 0) # TODO fix this with non 0
