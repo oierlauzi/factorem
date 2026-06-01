@@ -189,7 +189,7 @@ def run(args: argparse.Namespace):
     similarities /= abs(similarities).max()
     
     logger.info('Synchronizing')
-    synchronization_transform, values = synchronization.burer_monteiro_ortho_group_synchronization(
+    synchronization_transform, _ = synchronization.burer_monteiro_ortho_group_synchronization(
         similarities,
         synchronization.burer_monteiro_random_start(
             direction_count,
