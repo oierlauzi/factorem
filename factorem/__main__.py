@@ -147,7 +147,7 @@ def run(args: argparse.Namespace):
         assert args.embedding == 'spectral'
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
-            kernel='local'
+            kernel='median'
         )
 
     jobs = []
@@ -188,6 +188,9 @@ def run(args: argparse.Namespace):
     similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
     
+    #plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
+    #plt.show()
+    
     logger.info('Synchronizing')
     synchronization_transform, _ = synchronization.burer_monteiro_ortho_group_synchronization(
         similarities,
@@ -197,10 +200,21 @@ def run(args: argparse.Namespace):
         )
     )
     
+    logger.info('Correcting orientations')
+    embeddings = synchronization.correct_embeddings(
+        embeddings=embeddings,
+        transforms=synchronization_transform
+    )
+    
+    #similarities = embeddings @ embeddings.T
+    #similarities /= abs(similarities).max()
+    #plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
+    #plt.show()
+    
     logger.info('Averaging')
     unified_embedding = synchronization.average_embeddings(
-        embeddings, 
-        synchronization_transform
+        embeddings=embeddings, 
+        max_iter=0 # TODO: Set it 16 when fixed.
     )
     
     logger.info('Computing PCA for the output')

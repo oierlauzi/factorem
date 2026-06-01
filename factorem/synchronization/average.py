@@ -70,52 +70,19 @@ def _compute_sigma2(
 
     return result
 
-def _average_embedding_component(
-    measurements = scipy.sparse.bsr_array,
+def average_embeddings(
+    embeddings: scipy.sparse.bsr_array,
     max_iter: int = 16
 ) -> np.ndarray:
-    p = measurements.blocksize[0]
-    m = measurements.shape[0] // p
-    n = measurements.shape[1]
+    p = embeddings.blocksize[0]
+    m = embeddings.shape[0] // p
+    n = embeddings.shape[1]
     
     gains = np.ones((m, p))
     sigma2 = np.ones((m, p))
     for _ in range(max_iter):
-        averages = _compute_averages(measurements, gains, sigma2, m, p)
-        gains = _compute_gains(measurements, averages, sigma2, m, p)
-        sigma2 = _compute_sigma2(measurements, averages, gains, m, p)
+        averages = _compute_averages(embeddings, gains, sigma2, m, p)
+        gains = _compute_gains(embeddings, averages, sigma2, m, p)
+        sigma2 = _compute_sigma2(embeddings, averages, gains, m, p)
 
-    return  _compute_averages(measurements, gains, sigma2, m, p)
-
-def _correct_embedding_orientations(
-    embeddings: scipy.sparse.bsr_array, 
-    transforms: np.ndarray
-) -> scipy.sparse.bsr_array:
-    n = embeddings.shape[1]
-    m, _, k = transforms.shape
-    data = np.empty((len(embeddings.data), k, 1))
-    indices = embeddings.indices
-    indptr = embeddings.indptr
-    for i, transform in enumerate(transforms):
-        start = indptr[i]
-        end = indptr[i+1]
-        
-        np.matmul(
-            transform.T,
-            embeddings.data[start:end],
-            out=data[start:end]
-        )
-    
-    return scipy.sparse.bsr_array(
-        (data, indices, indptr),
-        shape=(m*k, n)
-    )
-    
-def average_embeddings(
-    embeddings: scipy.sparse.bsr_array, 
-    transforms: np.ndarray
-) -> np.ndarray:
-    embeddings = _correct_embedding_orientations(embeddings, transforms)
-    similarities = embeddings @ embeddings.T
-    similarities /= abs(embeddings).max()
-    return _average_embedding_component(embeddings, 0) # TODO fix this with non 0
+    return  _compute_averages(embeddings, gains, sigma2, m, p)

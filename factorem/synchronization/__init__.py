@@ -3,3 +3,4 @@ from .burer_monteiro import (
     burer_monteiro_ortho_group_synchronization
 )
 from .average import average_embeddings
+from .correct import correct_embeddings

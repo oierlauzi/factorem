@@ -43,7 +43,7 @@ def burer_monteiro_ortho_group_synchronization(
     start: np.ndarray,
     special: bool = False,
     tol: float = 1e-8,
-    max_iter: int = 512,
+    max_iter: int = 1024,
 ) -> np.ndarray:
     x = start
     for _ in range(max_iter):
