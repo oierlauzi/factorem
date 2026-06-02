@@ -137,7 +137,7 @@ def run(args: argparse.Namespace):
         grain_size=256
     )
     
-    component_count = 4
+    component_count = 6
     if args.embedding == 'pca':
         processor = analysis.PCA(
             n_components=component_count, 
@@ -187,7 +187,6 @@ def run(args: argparse.Namespace):
     embeddings = builder.build()
     similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
-    
     #plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
     #plt.show()
     
@@ -220,7 +219,7 @@ def run(args: argparse.Namespace):
     logger.info('Computing PCA for the output')
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
-            
+        
     plt.hist2d(unified_embedding[:,0], unified_embedding[:,1], bins=64)
     plt.show()
     
