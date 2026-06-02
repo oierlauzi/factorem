@@ -66,6 +66,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         default='pca',
         help='Embedding method to use for dimensionality reduction'
     )
+    parser.add_argument(
+        '--components',
+        type=int,
+        default=6,
+        help='Number of components for dimensionality reduction'
+    )
 
     return parser.parse_args(argv)
 
@@ -137,7 +143,7 @@ def run(args: argparse.Namespace):
         grain_size=256
     )
     
-    component_count = 6
+    component_count = args.components
     if args.embedding == 'pca':
         processor = analysis.PCA(
             n_components=component_count, 
