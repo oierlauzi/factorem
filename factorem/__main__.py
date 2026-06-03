@@ -165,6 +165,13 @@ def run(args: argparse.Namespace):
     )
     for group in groups:
         group.sort()
+
+    #z = direction_matrices[:,2,:]
+    #c = list(map(len, groups))
+    #fig = plt.figure()
+    #ax = fig.add_subplot(projection='3d')
+    #ax.scatter(z[:,0], z[:,1], z[:,2], c=c, vmin=0.0)
+    #plt.show()
     
     logger.info('Setting up directional analysis')
     padded_box_size = round(args.padding_factor*box_size)
@@ -201,7 +208,7 @@ def run(args: argparse.Namespace):
     jobs = []
     for i in range(direction_count):
         if len(groups[i]) < args.min_particles:
-            #logger.info(f'Skipping direction {i}')
+            logger.info(f'Skipping direction {i}')
             continue
 
         jobs.append(
