@@ -243,7 +243,7 @@ def run(args: argparse.Namespace):
     synchronization_transform, _ = synchronization.burer_monteiro_ortho_group_synchronization(
         similarities,
         synchronization.burer_monteiro_random_start(
-            direction_count,
+            len(jobs),
             component_count
         )
     )
