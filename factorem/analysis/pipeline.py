@@ -49,6 +49,7 @@ class PipelinedRunner:
         loader: DataLoader,
         preprocessor: Preprocessor,
         processor: Processor,
+        device,
         prefetch: int = 2,
     ):
         if prefetch < 1:
@@ -56,6 +57,7 @@ class PipelinedRunner:
         self._loader = loader
         self._preprocessor = preprocessor
         self._processor = processor
+        self._device = device
         self._prefetch = prefetch
 
     def run(self, jobs: Iterable[Job]) -> Iterator[Tuple[Job, np.ndarray]]:
@@ -99,12 +101,13 @@ class PipelinedRunner:
 
     def _reader_loop(self, jobs: Iterable[Job], out: Queue) -> None:
         try:
-            for job in jobs:
-                prepared = self._loader.load(
-                    job.indices,
-                    job.direction_matrix
-                )
-                out.put((job, prepared))
+            with jax.default_device(self._device):
+                for job in jobs:
+                    prepared = self._loader.load(
+                        job.indices,
+                        job.direction_matrix
+                    )
+                    out.put((job, prepared))
         except BaseException as e:
             out.put(_StageError(e))
             return
@@ -112,23 +115,24 @@ class PipelinedRunner:
 
     def _dispatch_loop(self, in_q: Queue, out_q: Queue) -> None:
         try:
-            while True:
-                item = in_q.get()
-                if item is _END:
-                    break
-                if isinstance(item, _StageError):
-                    out_q.put(item)
-                    return
+            with jax.default_device(self._device):
+                while True:
+                    item = in_q.get()
+                    if item is _END:
+                        break
+                    if isinstance(item, _StageError):
+                        out_q.put(item)
+                        return
 
-                job, loaded = item
-                x = self._preprocessor.process(loaded)
-                deferred = self._processor.fit_transform(
-                    images=x.images_ft, 
-                    ctfs=x.ctfs, 
-                    count=x.valid_count
-                )
-                out_q.put((job, deferred))
-                
+                    job, loaded = item
+                    x = self._preprocessor.process(loaded)
+                    deferred = self._processor.fit_transform(
+                        images=x.images_ft, 
+                        ctfs=x.ctfs, 
+                        count=x.valid_count
+                    )
+                    out_q.put((job, deferred))
+                    
         except BaseException as e:
             out_q.put(_StageError(e))
             return
@@ -136,16 +140,17 @@ class PipelinedRunner:
 
     def _writer_loop(self, in_q: Queue, out_q: Queue) -> None:
         try:
-            while True:
-                item = in_q.get()
-                if item is _END:
-                    break
-                if isinstance(item, _StageError):
-                    out_q.put(item)
-                    return
-                job, deferred = item
-                host_array = jax.device_get(deferred)
-                out_q.put((job, host_array))
+            with jax.default_device(self._device):
+                while True:
+                    item = in_q.get()
+                    if item is _END:
+                        break
+                    if isinstance(item, _StageError):
+                        out_q.put(item)
+                        return
+                    job, deferred = item
+                    host_array = jax.device_get(deferred)
+                    out_q.put((job, host_array))
         except BaseException as e:
             out_q.put(_StageError(e))
             return

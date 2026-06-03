@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import tqdm
 import sklearn.decomposition
 import logging
+import jax
 
 logger = logging.getLogger(__name__)
 
@@ -72,8 +73,48 @@ def _parse_args(argv=None) -> argparse.Namespace:
         default=6,
         help='Number of components for dimensionality reduction'
     )
+    parser.add_argument(
+        "--device", 
+        type=str, 
+        default="gpu:0", 
+        help="Device to use. Format: 'cpu' or 'gpu:X' (e.g., 'gpu:0', 'gpu:1')"
+    )
 
     return parser.parse_args(argv)
+
+def select_device(index: str):
+    try:
+        if ":" in index:
+            backend_name, device_id = index.split(":")
+            device_id = int(device_id)
+        else:
+            backend_name = index
+            device_id = 0  # Default to first device if no ID provided
+            
+        backend_name = backend_name.lower()
+    except ValueError:
+        raise ValueError(f"Invalid device format: '{index}'. Use 'cpu' or 'gpu:N'.")
+
+    try:
+        available_devices = jax.devices(backend_name)
+        target_device = available_devices[device_id]
+        logger.info(f"Successfully selected device: {target_device}")
+        
+    except RuntimeError:
+        available_backends = jax.backends()
+        raise RuntimeError(
+            f"Backend '{backend_name}' is not available. "
+            f"Available backends: {available_backends}"
+        )
+    except IndexError:
+        num_devices = len(jax.devices(backend_name))
+        raise IndexError(
+            f"Device ID {device_id} out of bounds for backend '{backend_name}'. "
+            f"Found only {num_devices} device(s)."
+        )
+        
+    return target_device
+
 
 def run(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
@@ -87,6 +128,7 @@ def run(args: argparse.Namespace):
     spherical_aberration = optics.at[0, 'rlnSphericalAberration']
     voltage = optics.at[0, 'rlnVoltage']
     box_size = optics.at[0, 'rlnImageSize']
+    device = select_device(args.device)
     
     image_locations = particles_md['rlnImageName'].map(image.ImageLocation.parse)
     rotations = geometry.euler_zyz_to_matrix(
@@ -159,7 +201,7 @@ def run(args: argparse.Namespace):
     jobs = []
     for i in range(direction_count):
         if len(groups[i]) < args.min_particles:
-            print(f'Skipping direction {i}')
+            #logger.info(f'Skipping direction {i}')
             continue
 
         jobs.append(
@@ -176,6 +218,7 @@ def run(args: argparse.Namespace):
         loader=loader,
         preprocessor=preprocessor,
         processor=processor,
+        device=device,
         prefetch=4
     )
     
@@ -193,8 +236,8 @@ def run(args: argparse.Namespace):
     embeddings = builder.build()
     similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
-    #plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
-    #plt.show()
+    plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
+    plt.show()
     
     logger.info('Synchronizing')
     synchronization_transform, _ = synchronization.burer_monteiro_ortho_group_synchronization(
@@ -211,10 +254,10 @@ def run(args: argparse.Namespace):
         transforms=synchronization_transform
     )
     
-    #similarities = embeddings @ embeddings.T
-    #similarities /= abs(similarities).max()
-    #plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
-    #plt.show()
+    similarities = embeddings @ embeddings.T
+    similarities /= abs(similarities).max()
+    plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
+    plt.show()
     
     logger.info('Averaging')
     unified_embedding = synchronization.average_embeddings(
