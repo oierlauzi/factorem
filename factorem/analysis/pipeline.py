@@ -60,7 +60,34 @@ class PipelinedRunner:
         self._device = device
         self._prefetch = prefetch
 
-    def run(self, jobs: Iterable[Job]) -> Iterator[Tuple[Job, np.ndarray]]:
+    def run(
+        self,
+        jobs: Iterable[Job],
+        sequential: bool = False,
+    ) -> Iterator[Tuple[Job, np.ndarray]]:
+        if sequential:
+            return self._run_sequential(jobs)
+        return self._run_pipelined(jobs)
+
+    def _run_sequential(
+        self, jobs: Iterable[Job]
+    ) -> Iterator[Tuple[Job, np.ndarray]]:
+        """Run every stage inline on the calling thread, no threads/queues."""
+        with jax.default_device(self._device):
+            for job in jobs:
+                loaded = self._loader.load(job.indices, job.direction_matrix)
+                x = self._preprocessor.process(loaded)
+                deferred = self._processor.fit_transform(
+                    images=x.images_ft,
+                    ctfs=x.ctfs,
+                    count=x.valid_count,
+                )
+                host_array = jax.device_get(deferred)
+                yield job, host_array
+
+    def _run_pipelined(
+        self, jobs: Iterable[Job]
+    ) -> Iterator[Tuple[Job, np.ndarray]]:
         prepared_queue: Queue = Queue(maxsize=self._prefetch)
         result_queue: Queue = Queue(maxsize=self._prefetch)
         output_queue: Queue = Queue(maxsize=self._prefetch)

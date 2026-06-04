@@ -230,7 +230,7 @@ def run(args: argparse.Namespace):
     )
     
     progress = tqdm.tqdm(total=len(jobs), unit='dir')
-    for job, y in runner.run(jobs):
+    for job, y in runner.run(jobs, sequential=True):
         i = job.key
         indices = groups[i]
         assert np.all(indices[:-1] < indices[1:])
