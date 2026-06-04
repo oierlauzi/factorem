@@ -31,20 +31,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
         help='Input STAR file with particle data'
     )
     parser.add_argument(
-        '--angular_spacing',
-        metavar='DEG',
-        type=float,
-        default=5.0,
-        help='Average spacing between projection directions. In degrees.'
-    )
-    parser.add_argument(
-        '--group_angle',
-        metavar='DEG',
-        type=float,
-        default=5.0,
-        help='Maximum angle deviation in the projection directions. In degrees.'
-    )
-    parser.add_argument(
         '--prefix',
         metavar='DIR',
         help='Prefix for the MRC binary files.'
@@ -72,6 +58,29 @@ def _parse_args(argv=None) -> argparse.Namespace:
         type=int,
         default=6,
         help='Number of components for dimensionality reduction'
+    )
+    parser.add_argument(
+        '--diameter',
+        type=float,
+        help='Particle diameter in angstrom'
+    )
+    parser.add_argument(
+        '--resolution',
+        type=float,
+        default=4.0,
+        help='Maximum resolution in angstrom'
+    )
+    parser.add_argument(
+        '--aperture_index',
+        type=float,
+        default=1.0,
+        help='Projection direction aperture of the Shannon angle'
+    )
+    parser.add_argument(
+        '--direction_index',
+        type=float,
+        default=1.0,
+        help='Projection direction sampling in terms of the Shannon angle. Should be greater or equal to the aperture index.'
     )
     parser.add_argument(
         "--device", 
@@ -148,9 +157,19 @@ def run(args: argparse.Namespace):
     defocus = 0.5*(defocus_u + defocus_v)
     image_count = len(image_locations)
     
+    shannon_angle = args.resolution / args.diameter
+    direction_spacing = args.direction_index * shannon_angle
+    direction_aperture = args.aperture_index * shannon_angle
+    max_freq = pixel_size / args.resolution
+    
+    logger.info('Shannon angle: %.2fdeg' % math.degrees(shannon_angle))
+    logger.info('Direction spacing: %.2fdeg' % math.degrees(direction_spacing))
+    logger.info('Direction aperture: %.2fdeg' % math.degrees(direction_aperture))
+    logger.info('Maximum (digital) frequency: %.2f' % max_freq)
+
     logger.info('Computing projection directions')
     direction_count =  geometry.estimate_projection_direction_count(
-        math.radians(args.angular_spacing)
+        direction_spacing
     )
     directions = geometry.sample_projection_directions(direction_count)
     direction_matrices = geometry.euler_zyz_to_matrix(
@@ -161,7 +180,7 @@ def run(args: argparse.Namespace):
     groups = geometry.group_projection_directions(
         rotations[:,2,:],
         direction_matrices[:,2,:],
-        math.radians(args.group_angle)
+        direction_aperture
     )
     for group in groups:
         group.sort()
@@ -188,7 +207,7 @@ def run(args: argparse.Namespace):
         voltage_kv=voltage,
         spherical_aberration_mm=spherical_aberration,
         amplitude_contrast=amplitude_contrast,
-        max_freq=None,
+        max_freq=max_freq,
         grain_size=256
     )
     
@@ -230,7 +249,7 @@ def run(args: argparse.Namespace):
     )
     
     progress = tqdm.tqdm(total=len(jobs), unit='dir')
-    for job, y in runner.run(jobs, sequential=True):
+    for job, y in runner.run(jobs):
         i = job.key
         indices = groups[i]
         assert np.all(indices[:-1] < indices[1:])
