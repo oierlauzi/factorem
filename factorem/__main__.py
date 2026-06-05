@@ -237,9 +237,10 @@ def run(args: argparse.Namespace):
                 direction_matrix=direction_matrices[i],
             )
         )
+    analyzed_direction_count = len(jobs)
 
     logger.info('Analyzing directional groups')
-    builder = BsrArrayBuilder((len(jobs)*component_count, image_count))
+    builder = BsrArrayBuilder((analyzed_direction_count*component_count, image_count))
     runner = analysis.PipelinedRunner(
         loader=loader,
         preprocessor=preprocessor,
@@ -248,8 +249,10 @@ def run(args: argparse.Namespace):
         prefetch=4
     )
     
-    progress = tqdm.tqdm(total=len(jobs), unit='dir')
+    progress = tqdm.tqdm(total=analyzed_direction_count, unit='dir')
     for job, y in runner.run(jobs):
+        #plt.scatter(y[:,0], y[:,1])
+        #plt.show()
         i = job.key
         indices = groups[i]
         assert np.all(indices[:-1] < indices[1:])
