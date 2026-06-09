@@ -4,7 +4,6 @@ import starfile
 import numpy as np
 import sys
 import math
-import matplotlib.pyplot as plt
 import tqdm
 import sklearn.decomposition
 import logging
@@ -184,13 +183,6 @@ def run(args: argparse.Namespace):
     )
     for group in groups:
         group.sort()
-
-    #z = direction_matrices[:,2,:]
-    #c = list(map(len, groups))
-    #fig = plt.figure()
-    #ax = fig.add_subplot(projection='3d')
-    #ax.scatter(z[:,0], z[:,1], z[:,2], c=c, vmin=0.0)
-    #plt.show()
     
     logger.info('Setting up directional analysis')
     padded_box_size = round(args.padding_factor*box_size)
@@ -221,7 +213,8 @@ def run(args: argparse.Namespace):
         assert args.embedding == 'spectral'
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
-            kernel='median'
+            kernel='median',
+            trim_iterations=3
         )
 
     jobs = []
@@ -251,8 +244,6 @@ def run(args: argparse.Namespace):
     
     progress = tqdm.tqdm(total=analyzed_direction_count, unit='dir')
     for job, y in runner.run(jobs):
-        #plt.scatter(y[:,0], y[:,1])
-        #plt.show()
         i = job.key
         indices = groups[i]
         assert np.all(indices[:-1] < indices[1:])
@@ -265,15 +256,14 @@ def run(args: argparse.Namespace):
     embeddings = builder.build()
     similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
-    plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
-    plt.show()
     
     logger.info('Synchronizing')
     synchronization_transform, _ = synchronization.burer_monteiro_ortho_group_synchronization(
         similarities,
         synchronization.burer_monteiro_random_start(
-            len(jobs),
-            component_count
+            n=analyzed_direction_count,
+            k=component_count,
+            p=2*component_count+1
         )
     )
     
@@ -285,8 +275,6 @@ def run(args: argparse.Namespace):
     
     similarities = embeddings @ embeddings.T
     similarities /= abs(similarities).max()
-    plt.imshow(similarities.todense(), cmap='bwr', vmin=-1.0, vmax=1.0)
-    plt.show()
     
     logger.info('Averaging')
     unified_embedding = synchronization.average_embeddings(
@@ -298,8 +286,6 @@ def run(args: argparse.Namespace):
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
         
-    plt.hist2d(unified_embedding[:,0], unified_embedding[:,1], bins=64)
-    plt.show()
     
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
