@@ -30,9 +30,12 @@ def _decompose_bases(bases: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 def burer_monteiro_random_start(
     n: int, 
     k: int, 
+    p: Optional[int] = None,
     rng: np.random.Generator = np.random.default_rng()
 ):
-    p = 2*k+1
+    if p is None:
+        p = 2*k+1
+
     start = rng.standard_normal((n*k, p))
     start, _ = np.linalg.qr(start, mode='reduced')
     start = start.reshape(n, k, p)

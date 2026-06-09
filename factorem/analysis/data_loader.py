@@ -8,8 +8,6 @@ from .. import geometry
 
 @dataclass(frozen=True)
 class HostBatch:
-    """Host-side, fully prepared inputs for a single batch.
-    """
     images: np.ndarray
     affine_inv: np.ndarray
     defocus: np.ndarray
@@ -17,11 +15,6 @@ class HostBatch:
 
 
 class DataLoader:
-    """Host-side loader: reads images from disk and assembles affine matrices.
-
-    Performs no JAX dispatch; safe to call from a worker thread.
-    """
-
     def __init__(
         self,
         image_locations,
@@ -41,8 +34,6 @@ class DataLoader:
         indices: np.ndarray,
         reference_transform: np.ndarray
     ) -> HostBatch:
-        """CPU-only stage: read images from disk and compute affine matrices.
-        """
         reference_transform = reference_transform.astype(np.float32)
         batch_images = self.reader.read_batch(self.image_locations[indices])
         batch_rotations = self.rotations[indices].astype(np.float32)

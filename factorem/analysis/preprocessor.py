@@ -64,24 +64,12 @@ def _warp_pad_rfft2(
     
 @dataclass(frozen=True)
 class DeviceBatch:
-    """Device-side outputs ready for downstream processors.
-
-    The arrays are deferred (JAX async dispatch); consumers should not
-    block until necessary. ``valid_count`` mirrors the host-side count so
-    consumers can build a mask for padded rows.
-    """
     images_ft: jax.Array
     ctfs: jax.Array
     valid_count: int
 
 
 class Preprocessor:
-    """Device-side stage: H2D copy + warp/pad/rfft + CTF.
-
-    Separated from ``DataLoader`` so host I/O and JAX dispatch live in
-    different classes. Must be called on the main thread.
-    """
-
     def __init__(
         self,
         padded_box_size: int,
@@ -111,8 +99,6 @@ class Preprocessor:
             self.frequency_mask = None
 
     def process(self, host_batch: HostBatch) -> DeviceBatch:
-        """H2D + preprocessing. Returns deferred ``jax.Array``s (non-blocking).
-        """
         n, box_size_y, box_size_x = host_batch.images.shape
         padding = (-n) % self.grain_size
 

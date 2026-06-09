@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 import jax
 import jax.numpy as jnp
@@ -94,33 +94,12 @@ def _fixed_sigma_kernel(
     del valid
     return _radial_basis_function(distance2=distance2, sigma2=sigma2)
 
-@jax.jit
-def _compute_graph_laplacian(
-    affinity: jax.Array,
-    valid: jax.Array,
-) -> jax.Array:
-    # identity whose eigenvalues sort far above the ones we extract.
-    pair_valid = valid[:, None] & valid[None, :]
-    affinity = jnp.where(pair_valid, affinity, 0.0)
-
-    degree = affinity.sum(axis=-1)
-    safe_degree = jnp.where(valid, degree, 1.0)
-    d_inv_sqrt = jnp.where(valid, jax.lax.rsqrt(safe_degree), 0.0)
-
-    normalized = affinity * d_inv_sqrt[:, None] * d_inv_sqrt[None, :]
-    indices = jnp.arange(affinity.shape[0])
-    laplacian = (-normalized).at[indices, indices].add(1)
-    laplacian = 0.5 * (laplacian + laplacian.T)
-
-    return laplacian, d_inv_sqrt
-
 @partial(jax.jit, static_argnames=('n_components',))
 def _spectral_embedding(
     affinity: jax.Array,
     valid: jax.Array,
     n_components: int
 ) -> jax.Array:
-    # identity whose eigenvalues sort far above the ones we extract.
     pair_valid = valid[:, None] & valid[None, :]
     affinity = jnp.where(pair_valid, affinity, 0.0)
 
@@ -129,7 +108,8 @@ def _spectral_embedding(
     d_inv_sqrt = jnp.where(valid, jax.lax.rsqrt(safe_degree), 0.0)
 
     normalized = affinity * d_inv_sqrt[:, None] * d_inv_sqrt[None, :]
-    diag = jnp.where(valid, 1.0, 1e6)
+    huge_eigval = 2*len(valid)
+    diag = jnp.where(valid, 1.0, huge_eigval)
     indices = jnp.arange(affinity.shape[0])
     laplacian = (-normalized).at[indices, indices].add(diag)
     laplacian = 0.5 * (laplacian + laplacian.T)
@@ -139,15 +119,48 @@ def _spectral_embedding(
     
     return embedding
 
+@partial(
+    jax.jit, 
+    static_argnames=(
+        'kernel', 
+        'n_components', 
+        'trim_iterations', 
+        'outlier_threshold'
+    )
+)
+def _fit_transform(
+    images: jax.Array,
+    ctfs: jax.Array,
+    valid: jax.Array,
+    kernel: Callable[[jax.Array, jax.Array], jax.Array],
+    n_components: int,
+    trim_iterations: int,
+    outlier_threshold: float,
+) -> tuple[jax.Array, jax.Array]:
+    distances2 = _self_pairwise_distance2(images, ctfs)
+    affinity = kernel(distances2, valid)
+    embedding = _spectral_embedding(affinity, valid, n_components)
+    for _ in range(trim_iterations):
+        inliers = jnp.linalg.norm(embedding, axis=1) <= outlier_threshold
+        valid = jnp.logical_and(valid, inliers)
+        affinity = kernel(distances2, valid)
+        embedding = _spectral_embedding(affinity, valid, n_components)
+    return embedding, valid
+
+
 class SpectralEmbedding(Processor):
     def __init__(
         self,
         n_components: int,
         kernel: str = 'median',
         k: Optional[int] = None,
-        sigma2: Optional[float] = None
+        sigma2: Optional[float] = None,
+        trim_iterations: int = 0,
+        outlier_threshold: float = 5.0
     ):
         self.n_components = n_components
+        self.trim_iterations = trim_iterations
+        self.outlier_threshold = outlier_threshold
 
         if kernel == 'median':
             self.kernel = _median_scaling_kernel
@@ -166,8 +179,12 @@ class SpectralEmbedding(Processor):
     ) -> jax.Array:
         n_padded = images.shape[0]
         valid = jnp.arange(n_padded) < count
-        distances2 = _self_pairwise_distance2(images, ctfs)
-        affinity = self.kernel(distances2, valid)
-        #laplacian, d_inv_sqrt = _compute_graph_laplacian(affinity, valid)
-        embedding = _spectral_embedding(affinity, valid, self.n_components)
-        return embedding[:count]
+        embedding, valid = _fit_transform(
+            images, ctfs, valid,
+            kernel=self.kernel,
+            n_components=self.n_components,
+            trim_iterations=self.trim_iterations,
+            outlier_threshold=self.outlier_threshold,
+        )
+        
+        return embedding[:count]#, valid[:count]
