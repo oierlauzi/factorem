@@ -25,5 +25,5 @@ def compute_ctf_image_2d(
     spherical_aberration = context.spherical_aberration_a
     q0 = context.q0
     
-    angle = jnp.pi*wavelength*k2*(0.5*spherical_aberration*wavelength2*k2 + defocus_a[...,None,None])
-    return jnp.sin(angle) - q0*jnp.cos(angle)
+    angle = jnp.pi*wavelength*k2*(0.5*spherical_aberration*wavelength2*k2 - defocus_a[...,None,None])
+    return -jnp.sin(angle - context.amplitude_contrast_phase_shift)
