@@ -214,7 +214,7 @@ def run(args: argparse.Namespace):
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
             kernel='median',
-            trim_iterations=3
+            trim_iterations=0
         )
 
     jobs = []
