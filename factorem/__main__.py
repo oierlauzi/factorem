@@ -311,7 +311,7 @@ def run(args: argparse.Namespace):
     ]
     particles_md['factoremGroupCount'] = image_multiplicity
     star['particles'] = particles_md
-    starfile.write(star)
+    starfile.write(star, args.output)
 
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
