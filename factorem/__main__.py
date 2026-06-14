@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Sequence
 import argparse
 import starfile
 import numpy as np
@@ -28,6 +28,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
         required=True,
         metavar='STAR',
         help='Input STAR file with particle data'
+    )
+    parser.add_argument(
+        '-o', '--output',
+        required=True,
+        metavar='STAR',
+        help='Output STAR file with embedding data'
     )
     parser.add_argument(
         '--prefix',
@@ -123,6 +129,13 @@ def select_device(index: str):
         
     return target_device
 
+def _image_count_groups(groups: Sequence[Sequence[int]], n_images: int) -> np.ndarray:
+    result = np.zeros(n_images, dtype=np.int64)
+
+    for group in groups:
+        result[group] += 1
+    
+    return result
 
 def run(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
@@ -218,19 +231,25 @@ def run(args: argparse.Namespace):
         )
 
     jobs = []
-    for i in range(direction_count):
-        if len(groups[i]) < args.min_particles:
-            logger.info(f'Skipping direction {i}')
+    significant_groups = []
+    for i, group in enumerate(groups):
+        if len(group) < args.min_particles:
+            logger.info(f'Skipping direction group {i}')
             continue
-
+        
+        significant_groups.append(group)
         jobs.append(
             analysis.Job(
                 key=i,
-                indices=groups[i],
+                indices=group,
                 direction_matrix=direction_matrices[i],
             )
         )
-    analyzed_direction_count = len(jobs)
+    analyzed_direction_count = len(significant_groups)
+    image_multiplicity = _image_count_groups(significant_groups, image_count)
+    skipped_images = np.argwhere(image_multiplicity<1).squeeze()
+    if len(skipped_images) > 0:
+        logger.warning(f'The following images were not analyzed due to insufficient group population: {skipped_images.tolist()}')
 
     logger.info('Analyzing directional groups')
     builder = BsrArrayBuilder((analyzed_direction_count*component_count, image_count))
@@ -285,8 +304,15 @@ def run(args: argparse.Namespace):
     logger.info('Computing PCA for the output')
     pca = sklearn.decomposition.PCA(n_components=component_count)
     unified_embedding = pca.fit_transform(unified_embedding)
-        
-    
+
+    particles_md['factoremEmbedding'] = [
+        '[' + ', '.join(f'{v:.4f}' for v in row) + ']'
+        for row in unified_embedding
+    ]
+    particles_md['factoremGroupCount'] = image_multiplicity
+    star['particles'] = particles_md
+    starfile.write(star)
+
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
     run(args)
