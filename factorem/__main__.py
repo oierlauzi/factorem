@@ -306,7 +306,7 @@ def run(args: argparse.Namespace):
     unified_embedding = pca.fit_transform(unified_embedding)
 
     particles_md['factoremEmbedding'] = [
-        '[' + ', '.join(f'{v:.4f}' for v in row) + ']'
+        '[' + ', '.join(f'{v:.4e}' for v in row) + ']'
         for row in unified_embedding
     ]
     particles_md['factoremGroupCount'] = image_multiplicity
