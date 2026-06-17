@@ -16,32 +16,6 @@ def _rfft2_multiplicity(box_size: int) -> jax.Array:
     return jnp.broadcast_to(cols, (box_size, half))
 
 @jax.jit
-def _crossed_pairwise_distance2(
-    left_images: jax.Array,
-    left_ctfs: jax.Array,
-    right_images: jax.Array,
-    right_ctfs: jax.Array,
-) -> jax.Array:
-    # Expand:
-    # |L_i*b_j - R_j*a_i|^2 =
-    # |L_i|^2*b_j^2 + |R_j|^2*a_i^2 - 2*a_i*b_j*Re(L_i*conj(R_j))
-    n = left_images.shape[0]
-    m = right_images.shape[0]
-    L = left_images.reshape(n, -1)
-    R = right_images.reshape(m, -1)
-    a = left_ctfs.reshape(n, -1)
-    b = right_ctfs.reshape(m, -1)
-
-    L_abs2 = jnp.square(L.real) + jnp.square(L.imag)
-    R_abs2 = jnp.square(R.real) + jnp.square(R.imag)
-
-    term1 = L_abs2 @ (b**2).T
-    term2 = (a**2) @ R_abs2.T
-    term3 = (a * L.real) @ (b * R.real).T + (a * L.imag) @ (b * R.imag).T
-
-    return term1 + term2 - 2*term3
-
-@jax.jit
 def _self_pairwise_distance2(
     images: jax.Array,
     ctfs: jax.Array,
