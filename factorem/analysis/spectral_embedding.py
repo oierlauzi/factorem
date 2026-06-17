@@ -106,34 +106,19 @@ def _spectral_embedding(
     
     return embedding
 
-@partial(
-    jax.jit, 
-    static_argnames=(
-        'kernel', 
-        'n_components', 
-        'trim_iterations', 
-        'outlier_threshold'
-    )
-)
+@partial(jax.jit, static_argnames=('kernel', 'n_components'))
 def _fit_transform(
     images: jax.Array,
     ctfs: jax.Array,
     valid: jax.Array,
     kernel: Callable[[jax.Array, jax.Array], jax.Array],
     n_components: int,
-    trim_iterations: int,
-    outlier_threshold: float,
 ) -> tuple[jax.Array, jax.Array]:
     multiplicity = _rfft2_multiplicity(images.shape[1])
     distances2 = _self_pairwise_distance2(images, ctfs, multiplicity)
     affinity = kernel(distances2, valid)
     embedding = _spectral_embedding(affinity, valid, n_components)
-    for _ in range(trim_iterations):
-        inliers = jnp.linalg.norm(embedding, axis=1) <= outlier_threshold
-        valid = jnp.logical_and(valid, inliers)
-        affinity = kernel(distances2, valid)
-        embedding = _spectral_embedding(affinity, valid, n_components)
-    return embedding, valid
+    return embedding
 
 
 class SpectralEmbedding(Processor):
@@ -142,13 +127,9 @@ class SpectralEmbedding(Processor):
         n_components: int,
         kernel: str = 'median',
         k: Optional[int] = None,
-        sigma2: Optional[float] = None,
-        trim_iterations: int = 0,
-        outlier_threshold: float = 5.0
+        sigma2: Optional[float] = None
     ):
         self.n_components = n_components
-        self.trim_iterations = trim_iterations
-        self.outlier_threshold = outlier_threshold
 
         if kernel == 'median':
             self.kernel = _median_scaling_kernel
@@ -167,12 +148,12 @@ class SpectralEmbedding(Processor):
     ) -> jax.Array:
         n_padded = images.shape[0]
         valid = jnp.arange(n_padded) < count
-        embedding, valid = _fit_transform(
-            images, ctfs, valid,
+        embedding = _fit_transform(
+            images=images, 
+            ctfs=ctfs, 
+            valid=valid,
             kernel=self.kernel,
             n_components=self.n_components,
-            trim_iterations=self.trim_iterations,
-            outlier_threshold=self.outlier_threshold,
         )
 
-        return embedding[:count]#, valid[:count]
+        return embedding[:count]

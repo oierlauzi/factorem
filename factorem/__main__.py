@@ -226,8 +226,7 @@ def run(args: argparse.Namespace):
         assert args.embedding == 'spectral'
         processor = analysis.SpectralEmbedding(
             n_components=component_count,
-            kernel='median',
-            trim_iterations=0
+            kernel='median'
         )
 
     jobs = []
@@ -262,7 +261,7 @@ def run(args: argparse.Namespace):
     )
     
     progress = tqdm.tqdm(total=analyzed_direction_count, unit='dir')
-    for job, y in runner.run(jobs):
+    for job, y in runner.run(jobs, sequential=True):
         i = job.key
         indices = groups[i]
         assert np.all(indices[:-1] < indices[1:])
