@@ -35,7 +35,9 @@ class PCA(Processor):
         count: int
     ) -> jax.Array:
         n_padded = images.shape[0]
-        wiener_corrected_images = wiener_ctf_correct_2d(images, ctfs)
+        wiener_corrected_images = jnp.fft.irfft2(
+            wiener_ctf_correct_2d(images, ctfs)
+        )
         wiener_corrected_images = _remove_padding(
             wiener_corrected_images, 
             self.particle_size
