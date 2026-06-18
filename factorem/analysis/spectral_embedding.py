@@ -5,6 +5,8 @@ import jax
 import jax.numpy as jnp
 
 from .processor import Processor
+from .maximum_a_posteriori import estimate_map_reconstruction
+from ..ctf import wiener_ctf_correct_2d
 
 @partial(jax.jit, static_argnames=('box_size',))
 def _rfft2_multiplicity(box_size: int) -> jax.Array:
@@ -19,26 +21,20 @@ def _rfft2_multiplicity(box_size: int) -> jax.Array:
 def _self_pairwise_distance2(
     images: jax.Array,
     ctfs: jax.Array,
+    inv_ssnr: jax.Array,
     multiplicity: jax.Array
 ) -> jax.Array:
-    # Expand: 
-    # |A_i*c_j - A_j*c_i|^2
-    # |A_i|^2*c_j^2 + |A_j|^2*c_i^2 - 2*c_i*c_j*Re(A_i*conj(A_j))
-    # term2 == term1.T by symmetry, so only 3 matmuls needed instead of 4.
-    n = images.shape[0]
-    A = images.reshape(n, -1)
-    c = ctfs.reshape(n, -1)
-    w = multiplicity.reshape(-1)
+    ctf_corrected_images = wiener_ctf_correct_2d(images, ctfs, inv_ssnr)
 
-    A_abs2 = jnp.square(A.real) + jnp.square(A.imag)
-    cr = c * A.real
-    ci = c * A.imag
+    flat = ctf_corrected_images.reshape(len(ctf_corrected_images), -1)
+    weighted = flat * multiplicity.reshape(-1)
 
-    term1 = (A_abs2 * w) @ (c**2).T
-    term2 = term1.T
-    term3 = (cr * w) @ cr.T + (ci * w) @ ci.T
+    gram = (weighted @ flat.conj().T).real
 
-    return jnp.maximum(term1 + term2 - 2*term3, 0.0)
+    sq_norms = jnp.diagonal(gram)
+    distance2 = sq_norms[:, None] + sq_norms[None, :] - 2.0 * gram
+    return jnp.maximum(distance2, 0.0)
+
 
 @jax.jit
 def _radial_basis_function(
@@ -113,13 +109,19 @@ def _fit_transform(
     valid: jax.Array,
     kernel: Callable[[jax.Array, jax.Array], jax.Array],
     n_components: int,
-) -> tuple[jax.Array, jax.Array]:
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+    average, inv_ssnr = estimate_map_reconstruction(
+        images,
+        ctfs,
+        valid
+    )
+    inv_ssnr = inv_ssnr / jnp.sum(valid) # HACK
+
     multiplicity = _rfft2_multiplicity(images.shape[1])
-    distances2 = _self_pairwise_distance2(images, ctfs, multiplicity)
+    distances2 = _self_pairwise_distance2(images, ctfs, inv_ssnr, multiplicity)
     affinity = kernel(distances2, valid)
     embedding = _spectral_embedding(affinity, valid, n_components)
     return embedding
-
 
 class SpectralEmbedding(Processor):
     def __init__(
@@ -149,8 +151,8 @@ class SpectralEmbedding(Processor):
         n_padded = images.shape[0]
         valid = jnp.arange(n_padded) < count
         embedding = _fit_transform(
-            images=images, 
-            ctfs=ctfs, 
+            images=images,
+            ctfs=ctfs,
             valid=valid,
             kernel=self.kernel,
             n_components=self.n_components,
