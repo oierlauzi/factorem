@@ -56,6 +56,14 @@ def _estimate_fsc_from_halves(
     return jnp.clip(fsc, 0.0, 0.999)
 
 @jax.jit
+def _estimate_signal_spectra(
+    half1: jax.Array,
+    half2: jax.Array
+) -> jax.Array:
+    co_spectrum = jnp.real(half1*half2.conj())
+    return _radial_psd_average(co_spectrum)
+
+@jax.jit
 def _estimate_noise_variance(
     images: jax.Array, 
     ctfs: jax.Array, 
@@ -86,52 +94,29 @@ def estimate_map_reconstruction(
     valid: jax.Array,
     max_iter: int = 16
 ) -> Tuple[jax.Array, jax.Array, jax.Array, jax.Array]:
-    """Iteratively regularised MAP reconstruction (RELION-style, 2D).
-
-    Refines two independent even/odd half reconstructions. The regulariser is
-    derived from the Fourier shell correlation (FSC) between the two halves,
-    not from their raw cross-power: the FSC is a normalised correlation, so it
-    is invariant to the Wiener shrinkage applied to each half and therefore
-    does not collapse at high frequency.
-
-    The per-shell FSC is turned into a *map* SSNR (``FSC / (1 - FSC)`` for a
-    half, doubled for the full reconstruction) and then converted into the
-    per-pixel object inverse-SSNR ``inv_ssnr = sigma^2 / tau^2`` via the CTF
-    accumulator weight ``sum(CTF^2) / SSNR``. That single ``inv_ssnr`` is the
-    regulariser for the half accumulators, the full accumulator, and any
-    downstream per-particle Wiener filter (denominator ``CTF^2 + inv_ssnr``).
-
-    Returns the full reconstruction (``average``), the object inverse-SSNR
-    (``inv_ssnr``), the implied object signal power (``tau2``) and the pooled
-    noise power (``sigma2``), each a ``(box, box // 2 + 1)`` spectrum.
-    """
-    eps = 1e-6
     even_mask = (jnp.arange(len(valid)) % 2) == 0
     valid = valid[:, None, None]
     even_mask = even_mask[:, None, None]
     valid_even = (valid & even_mask)
     valid_odd = (valid & ~even_mask)
 
-    # CTF accumulator weights are constant across iterations.
-    sum_c2_even = jnp.sum(jnp.square(ctfs), where=valid_even, axis=0)
-    sum_c2_odd = jnp.sum(jnp.square(ctfs), where=valid_odd, axis=0)
-    sum_c2_all = jnp.sum(jnp.square(ctfs), where=valid, axis=0)
-
-    fsc = jnp.zeros(images.shape[1:])
-    inv_ssnr_even = jnp.zeros(images.shape[1:])
-    inv_ssnr_odd = jnp.zeros(images.shape[1:])
+    tau2 = jnp.ones(images.shape[1:], dtype=ctfs.dtype)
+    sigma2_even = jnp.zeros(images.shape[1:], dtype=ctfs.dtype)
+    sigma2_odd = jnp.zeros(images.shape[1:], dtype=ctfs.dtype)
     for _ in range(max_iter):
+        inv_ssnr_even = sigma2_even / jnp.maximum(tau2, 1e-12)
+        inv_ssnr_odd = sigma2_odd / jnp.maximum(tau2, 1e-12)
         half_even = _estimate_map_average(images, ctfs, valid_even, inv_ssnr_even)
         half_odd = _estimate_map_average(images, ctfs, valid_odd, inv_ssnr_odd)
 
-        fsc = _estimate_fsc_from_halves(half_even, half_odd)
-        ssnr_half = fsc / jnp.maximum(1.0 - fsc, eps)
-        inv_ssnr_even = sum_c2_even / jnp.maximum(ssnr_half, eps)
-        inv_ssnr_odd = sum_c2_odd / jnp.maximum(ssnr_half, eps)
+        tau2 = _estimate_signal_spectra(half_even, half_odd)
+        sigma2_even = _estimate_noise_variance(images, ctfs, valid_even, half_even)
+        sigma2_odd = _estimate_noise_variance(images, ctfs, valid_odd, half_odd)
 
-    ssnr_full = 2.0 * fsc / jnp.maximum(1.0 - fsc, eps)
-    inv_ssnr = sum_c2_all / jnp.maximum(ssnr_full, eps)
+     
+    sigma2 = 0.5*(sigma2_even + sigma2_odd)
+    inv_ssnr = sigma2 / jnp.maximum(tau2, 1e-12)
     average = _estimate_map_average(images, ctfs, valid, inv_ssnr)
-    return average, inv_ssnr
+    return average, tau2, sigma2
 
     
