@@ -1,184 +1,85 @@
 from dataclasses import dataclass
-from queue import Queue
-from threading import Thread
-from typing import Any, Iterable, Iterator, Tuple
+from typing import Iterator, Optional, Sequence, Tuple
 
 import jax
 import numpy as np
+import vitrio as vio
 
-from .data_loader import DataLoader
 from .preprocessor import Preprocessor
 from .processor import Processor
 
 
 @dataclass(frozen=True)
 class Job:
-    """A unit of work for the pipeline.
-
-    ``key`` is opaque to the runner; the caller uses it to associate outputs
-    with inputs (e.g. a direction index).
-    """
-    key: Any
+    """The particles of one projection direction, analyzed together."""
+    key: int
     indices: np.ndarray
     direction_matrix: np.ndarray
 
 
-_END = object()
+def make_dataset(
+    image_names: Sequence[str],
+    rotations: np.ndarray,
+    shifts: np.ndarray,
+    defocus: np.ndarray,
+    image_prefix: Optional[str] = None,
+) -> vio.data.Dataset:
+    """Describe every particle: its image and the metadata to align it."""
+    locations = vio.data.parse_locations(image_names, root=image_prefix)
+    return vio.data.Dataset(
+        {
+            'image': vio.data.ImageSource(locations, data_type=np.float32),
+            'rotation': rotations.astype(np.float32),
+            'shift': shifts.astype(np.float32),
+            'defocus': defocus.astype(np.float32),
+        },
+        index=None,
+    )
 
 
-class _StageError:
-    def __init__(self, exc: BaseException):
-        self.exc = exc
+def _pad_to_multiple(indices: np.ndarray, grain_size: int) -> np.ndarray:
+    """Repeat rows so that batch sizes take few distinct values, which keeps
+    JAX from compiling again for every group. Padded rows are ignored by the
+    processors, which only look at the first ``len(indices)`` rows."""
+    padded_count = -(-len(indices) // grain_size) * grain_size
+    return np.resize(indices, padded_count)
 
 
-class PipelinedRunner:
-    """Runs ``processor`` over a stream of ``Job``s with overlapped stages.
+def analyze_directions(
+    dataset: vio.data.Dataset,
+    jobs: Sequence[Job],
+    preprocessor: Preprocessor,
+    processor: Processor,
+    device: jax.Device,
+    grain_size: int = 256,
+    prefetch: int = 4,
+) -> Iterator[Tuple[Job, np.ndarray]]:
+    """Embed the particles of each job, yielding results in job order.
 
-    Three concurrent stages connected by bounded queues:
-        1. Reader thread: ``processor.prepare`` (host I/O, CPU).
-        2. Main thread: ``processor.fit_transform`` (H2D + device dispatch).
-        3. Writer thread: ``jax.device_get`` (D2H).
-
-    JAX dispatch is asynchronous, so the main thread can submit iteration
-    *i+1*'s device work while the previous result is still being copied back
-    by the writer thread.
+    Stages overlap without threads of our own: vitrio reads the next
+    ``prefetch`` groups in the background and copies each one to ``device``,
+    JAX dispatches the computation asynchronously, and each result is copied
+    back to the host while the next group is computed.
     """
+    batches = vio.data.DataLoader(
+        dataset,
+        batch_sampler=[_pad_to_multiple(job.indices, grain_size) for job in jobs],
+        output='jax',
+        device=device,
+        prefetch=prefetch,
+    )
 
-    def __init__(
-        self,
-        loader: DataLoader,
-        preprocessor: Preprocessor,
-        processor: Processor,
-        device,
-        prefetch: int = 2,
-    ):
-        if prefetch < 1:
-            raise ValueError('prefetch must be >= 1')
-        self._loader = loader
-        self._preprocessor = preprocessor
-        self._processor = processor
-        self._device = device
-        self._prefetch = prefetch
+    previous = None
+    with jax.default_device(device):
+        for job, batch in zip(jobs, batches):
+            x = preprocessor(batch, job.direction_matrix)
+            y = processor.fit_transform(x.images_ft, x.ctfs, len(job.indices))
+            y.copy_to_host_async()
 
-    def run(
-        self,
-        jobs: Iterable[Job],
-        sequential: bool = False,
-    ) -> Iterator[Tuple[Job, np.ndarray]]:
-        if sequential:
-            return self._run_sequential(jobs)
-        return self._run_pipelined(jobs)
+            # Wait for the previous result only once this one is dispatched.
+            if previous is not None:
+                yield previous[0], np.asarray(previous[1])
+            previous = (job, y)
 
-    def _run_sequential(
-        self, jobs: Iterable[Job]
-    ) -> Iterator[Tuple[Job, np.ndarray]]:
-        """Run every stage inline on the calling thread, no threads/queues."""
-        with jax.default_device(self._device):
-            for job in jobs:
-                loaded = self._loader.load(job.indices, job.direction_matrix)
-                x = self._preprocessor.process(loaded)
-                deferred = self._processor.fit_transform(
-                    images=x.images_ft,
-                    ctfs=x.ctfs,
-                    count=x.valid_count,
-                )
-                host_array = jax.device_get(deferred)
-                yield job, host_array
-
-    def _run_pipelined(
-        self, jobs: Iterable[Job]
-    ) -> Iterator[Tuple[Job, np.ndarray]]:
-        prepared_queue: Queue = Queue(maxsize=self._prefetch)
-        result_queue: Queue = Queue(maxsize=self._prefetch)
-        output_queue: Queue = Queue(maxsize=self._prefetch)
-
-        reader = Thread(
-            target=self._reader_loop,
-            args=(jobs, prepared_queue),
-            daemon=True,
-        )
-        writer = Thread(
-            target=self._writer_loop,
-            args=(result_queue, output_queue),
-            daemon=True,
-        )
-        reader.start()
-        writer.start()
-
-        # Main thread drives the device-dispatch stage.
-        dispatch_thread = Thread(
-            target=self._dispatch_loop,
-            args=(prepared_queue, result_queue),
-            daemon=True,
-        )
-        dispatch_thread.start()
-
-        try:
-            while True:
-                item = output_queue.get()
-                if item is _END:
-                    break
-                if isinstance(item, _StageError):
-                    raise item.exc
-                yield item
-        finally:
-            reader.join()
-            dispatch_thread.join()
-            writer.join()
-
-    def _reader_loop(self, jobs: Iterable[Job], out: Queue) -> None:
-        try:
-            with jax.default_device(self._device):
-                for job in jobs:
-                    prepared = self._loader.load(
-                        job.indices,
-                        job.direction_matrix
-                    )
-                    out.put((job, prepared))
-        except BaseException as e:
-            out.put(_StageError(e))
-            return
-        out.put(_END)
-
-    def _dispatch_loop(self, in_q: Queue, out_q: Queue) -> None:
-        try:
-            with jax.default_device(self._device):
-                while True:
-                    item = in_q.get()
-                    if item is _END:
-                        break
-                    if isinstance(item, _StageError):
-                        out_q.put(item)
-                        return
-
-                    job, loaded = item
-                    x = self._preprocessor.process(loaded)
-                    deferred = self._processor.fit_transform(
-                        images=x.images_ft, 
-                        ctfs=x.ctfs, 
-                        count=x.valid_count
-                    )
-                    out_q.put((job, deferred))
-                    
-        except BaseException as e:
-            out_q.put(_StageError(e))
-            return
-        out_q.put(_END)
-
-    def _writer_loop(self, in_q: Queue, out_q: Queue) -> None:
-        try:
-            with jax.default_device(self._device):
-                while True:
-                    item = in_q.get()
-                    if item is _END:
-                        break
-                    if isinstance(item, _StageError):
-                        out_q.put(item)
-                        return
-                    job, deferred = item
-                    host_array = jax.device_get(deferred)
-                    out_q.put((job, host_array))
-        except BaseException as e:
-            out_q.put(_StageError(e))
-            return
-        out_q.put(_END)
+        if previous is not None:
+            yield previous[0], np.asarray(previous[1])

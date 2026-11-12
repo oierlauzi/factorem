@@ -14,12 +14,13 @@ authors = [
 requires-python = ">=3.10"
 dependencies = [
     "jax",
-    "mrcfile",
     "starfile",
     "numpy",
     "pandas",
+    "scipy",
     "tqdm",
-    "scikit-learn"
+    "scikit-learn",
+    "vitrio>=0.2",
 ]
 
 [project.optional-dependencies]

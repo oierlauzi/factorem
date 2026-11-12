@@ -1,18 +1,13 @@
-from typing import Any
-import numpy as np
 import jax
-
-from .data_loader import DataLoader
-from .preprocessor import Preprocessor
-
-Prepared = Any
-"""Opaque, processor-specific host-side payload returned by ``prepare``.
-
-Holds only host (numpy) state so it can be produced from a worker thread.
-"""
 
 
 class Processor:
+    """Embeds the particles of one direction group.
+
+    ``images`` and ``ctfs`` may hold padding rows past ``count``, which must
+    not affect the result. Returns an array of shape ``(count, components)``.
+    """
+
     def fit_transform(
         self,
         images: jax.Array,

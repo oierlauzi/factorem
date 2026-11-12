@@ -1,21 +1,23 @@
-from typing import Optional, Sequence
+from dataclasses import dataclass
+from typing import List, Optional
 import argparse
-import starfile
-import numpy as np
-import sys
-import math
-import tqdm
-import sklearn.decomposition
 import logging
+import math
+import sys
+
 import jax
+import numpy as np
+import pandas as pd
+import scipy.sparse
+import sklearn.decomposition
+import starfile
+import tqdm
+
+from . import analysis
+from . import geometry
+from . import synchronization
 
 logger = logging.getLogger(__name__)
-
-from . import geometry
-from . import image
-from . import analysis
-from . import synchronization
-from .bsr_array_builder import BsrArrayBuilder
 
 def _parse_args(argv=None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -129,192 +131,213 @@ def select_device(index: str):
         
     return target_device
 
-def _image_count_groups(groups: Sequence[Sequence[int]], n_images: int) -> np.ndarray:
-    result = np.zeros(n_images, dtype=np.int64)
 
-    for group in groups:
-        result[group] += 1
-    
-    return result
+@dataclass(frozen=True)
+class Optics:
+    pixel_size: float
+    box_size: int
+    voltage: float
+    spherical_aberration: float
+    amplitude_contrast: float
+
+    @staticmethod
+    def from_star(optics: pd.DataFrame) -> 'Optics':
+        row = optics.iloc[0]
+        return Optics(
+            pixel_size=float(row['rlnImagePixelSize']),
+            box_size=int(row['rlnImageSize']),
+            voltage=float(row['rlnVoltage']),
+            spherical_aberration=float(row['rlnSphericalAberration']),
+            amplitude_contrast=float(row['rlnAmplitudeContrast']),
+        )
+
+
+def _particle_rotations(particles: pd.DataFrame) -> np.ndarray:
+    return geometry.euler_zyz_to_matrix(
+        np.deg2rad(particles['rlnAngleRot'].to_numpy()),
+        np.deg2rad(particles['rlnAngleTilt'].to_numpy()),
+        np.deg2rad(particles['rlnAnglePsi'].to_numpy()),
+    )
+
+
+def _particle_shifts(particles: pd.DataFrame, pixel_size: float) -> np.ndarray:
+    origin = particles[['rlnOriginXAngst', 'rlnOriginYAngst']].to_numpy()
+    return origin / pixel_size
+
+
+def _particle_defocus(particles: pd.DataFrame) -> np.ndarray:
+    return 0.5 * (
+        particles['rlnDefocusU'].to_numpy() + particles['rlnDefocusV'].to_numpy()
+    )
+
+
+def _make_jobs(
+    rotations: np.ndarray,
+    spacing: float,
+    aperture: float,
+    min_particles: int,
+) -> List[analysis.Job]:
+    """Group particles by projection direction, keeping populated groups."""
+    count = geometry.estimate_projection_direction_count(spacing)
+    directions = geometry.sample_projection_directions(count)
+    direction_matrices = geometry.euler_zyz_to_matrix(
+        directions[:, 0], directions[:, 1], np.array(0)
+    )
+    groups = geometry.group_projection_directions(
+        rotations[:, 2, :], direction_matrices[:, 2, :], aperture
+    )
+
+    jobs = []
+    for i, group in enumerate(groups):
+        if len(group) < min_particles:
+            logger.info(f'Skipping direction group {i}')
+            continue
+        # Sorted indices keep reads of the same stack close together.
+        jobs.append(analysis.Job(
+            key=i,
+            indices=np.sort(group),
+            direction_matrix=direction_matrices[i],
+        ))
+    return jobs
+
+
+def _make_processor(args: argparse.Namespace, box_size: int) -> analysis.Processor:
+    if args.embedding == 'pca':
+        return analysis.PCA(n_components=args.components, particle_size=box_size)
+    assert args.embedding == 'spectral'
+    return analysis.SpectralEmbedding(
+        n_components=args.components,
+        kernel='median'
+    )
+
+
+def stack_embeddings(
+    jobs: List[analysis.Job],
+    results: List[np.ndarray],
+    image_count: int,
+) -> scipy.sparse.bsr_array:
+    """Block matrix with a block row per direction and a block column per
+    particle, holding each particle's embedding in each of its directions."""
+    component_count = results[0].shape[1]
+    return scipy.sparse.bsr_array(
+        (
+            np.concatenate(results)[:, :, None],
+            np.concatenate([job.indices for job in jobs]),
+            np.cumsum([0] + [len(job.indices) for job in jobs]),
+        ),
+        shape=(len(jobs) * component_count, image_count),
+    )
+
+
+def _unify_embeddings(
+    embeddings: scipy.sparse.bsr_array,
+    direction_count: int,
+    component_count: int,
+) -> np.ndarray:
+    """Align the per-direction embeddings with each other and average them."""
+    similarities = embeddings @ embeddings.T
+    similarities /= abs(similarities).max()
+
+    logger.info('Synchronizing')
+    transforms, _ = synchronization.burer_monteiro_ortho_group_synchronization(
+        similarities,
+        synchronization.burer_monteiro_random_start(
+            n=direction_count,
+            k=component_count,
+            p=2*component_count + 1
+        )
+    )
+
+    logger.info('Correcting orientations')
+    embeddings = synchronization.correct_embeddings(
+        embeddings=embeddings,
+        transforms=transforms
+    )
+
+    logger.info('Averaging')
+    unified = synchronization.average_embeddings(
+        embeddings=embeddings,
+        max_iter=0 # TODO: Set it 16 when fixed.
+    )
+
+    logger.info('Computing PCA for the output')
+    pca = sklearn.decomposition.PCA(n_components=component_count)
+    return pca.fit_transform(unified)
+
 
 def run(args: argparse.Namespace):
     logging.basicConfig(level=logging.INFO)
-    
+
     logger.info('Reading input')
-    star = starfile.read(args.input)
-    particles_md = star['particles']
-    optics = star['optics']
-    pixel_size = optics.at[0, 'rlnImagePixelSize']
-    amplitude_contrast = optics.at[0, 'rlnAmplitudeContrast']
-    spherical_aberration = optics.at[0, 'rlnSphericalAberration']
-    voltage = optics.at[0, 'rlnVoltage']
-    box_size = optics.at[0, 'rlnImageSize']
+    star = starfile.read(args.input, always_dict=True)
+    particles = star['particles']
+    optics = Optics.from_star(star['optics'])
     device = select_device(args.device)
-    
-    image_locations = particles_md['rlnImageName'].map(image.ImageLocation.parse)
-    rotations = geometry.euler_zyz_to_matrix(
-        np.deg2rad(np.asarray(particles_md['rlnAngleRot'])),
-        np.deg2rad(np.asarray(particles_md['rlnAngleTilt'])),
-        np.deg2rad(np.asarray(particles_md['rlnAnglePsi'])),
-    )
-    shifts = (1/pixel_size) * np.stack(
-        (
-            np.asarray(particles_md['rlnOriginXAngst']), 
-            np.asarray(particles_md['rlnOriginYAngst'])
-        ), 
-        axis=1
-    )
-    defocus_u = np.asarray(particles_md['rlnDefocusU'])
-    defocus_v = np.asarray(particles_md['rlnDefocusV'])
-    defocus = 0.5*(defocus_u + defocus_v)
-    image_count = len(image_locations)
-    
+
+    rotations = _particle_rotations(particles)
+    image_count = len(particles)
+
     shannon_angle = args.resolution / args.diameter
     direction_spacing = args.direction_index * shannon_angle
     direction_aperture = args.aperture_index * shannon_angle
-    max_freq = pixel_size / args.resolution
-    
+    max_freq = optics.pixel_size / args.resolution
+
     logger.info('Shannon angle: %.2fdeg' % math.degrees(shannon_angle))
     logger.info('Direction spacing: %.2fdeg' % math.degrees(direction_spacing))
     logger.info('Direction aperture: %.2fdeg' % math.degrees(direction_aperture))
     logger.info('Maximum (digital) frequency: %.2f' % max_freq)
 
     logger.info('Computing projection directions')
-    direction_count =  geometry.estimate_projection_direction_count(
-        direction_spacing
+    jobs = _make_jobs(
+        rotations, direction_spacing, direction_aperture, args.min_particles
     )
-    directions = geometry.sample_projection_directions(direction_count)
-    direction_matrices = geometry.euler_zyz_to_matrix(
-        directions[:,0],
-        directions[:,1],
-        np.array(0)
+    group_count = np.bincount(
+        np.concatenate([job.indices for job in jobs]), minlength=image_count
     )
-    groups = geometry.group_projection_directions(
-        rotations[:,2,:],
-        direction_matrices[:,2,:],
-        direction_aperture
-    )
-    for group in groups:
-        group.sort()
-    
-    logger.info('Setting up directional analysis')
-    padded_box_size = round(args.padding_factor*box_size)
-    loader = analysis.DataLoader(
-        image_locations=image_locations,
-        image_prefix=args.prefix,
-        rotations=rotations,
-        shifts=shifts,
-        defocus=defocus
-    )
-    preprocessor = analysis.Preprocessor(
-        padded_box_size=padded_box_size,
-        pixel_size_a=pixel_size,
-        voltage_kv=voltage,
-        spherical_aberration_mm=spherical_aberration,
-        amplitude_contrast=amplitude_contrast,
-        max_freq=max_freq,
-        grain_size=256
-    )
-    
-    component_count = args.components
-    if args.embedding == 'pca':
-        processor = analysis.PCA(
-            n_components=component_count, 
-            particle_size=box_size
-        )
-    else:
-        assert args.embedding == 'spectral'
-        processor = analysis.SpectralEmbedding(
-            n_components=component_count,
-            kernel='median'
-        )
-
-    jobs = []
-    significant_groups = []
-    for i, group in enumerate(groups):
-        if len(group) < args.min_particles:
-            logger.info(f'Skipping direction group {i}')
-            continue
-        
-        significant_groups.append(group)
-        jobs.append(
-            analysis.Job(
-                key=i,
-                indices=group,
-                direction_matrix=direction_matrices[i],
-            )
-        )
-    analyzed_direction_count = len(significant_groups)
-    image_multiplicity = _image_count_groups(significant_groups, image_count)
-    skipped_images = np.argwhere(image_multiplicity<1).squeeze()
+    skipped_images = np.flatnonzero(group_count == 0)
     if len(skipped_images) > 0:
         logger.warning(f'The following images were not analyzed due to insufficient group population: {skipped_images.tolist()}')
 
+    logger.info('Setting up directional analysis')
+    dataset = analysis.make_dataset(
+        image_names=particles['rlnImageName'],
+        rotations=rotations,
+        shifts=_particle_shifts(particles, optics.pixel_size),
+        defocus=_particle_defocus(particles),
+        image_prefix=args.prefix,
+    )
+    preprocessor = analysis.Preprocessor(
+        padded_box_size=round(args.padding_factor * optics.box_size),
+        pixel_size_a=optics.pixel_size,
+        voltage_kv=optics.voltage,
+        spherical_aberration_mm=optics.spherical_aberration,
+        amplitude_contrast=optics.amplitude_contrast,
+        max_freq=max_freq,
+    )
+    processor = _make_processor(args, optics.box_size)
+
     logger.info('Analyzing directional groups')
-    builder = BsrArrayBuilder((analyzed_direction_count*component_count, image_count))
-    runner = analysis.PipelinedRunner(
-        loader=loader,
-        preprocessor=preprocessor,
-        processor=processor,
-        device=device,
-        prefetch=4
+    stream = analysis.analyze_directions(
+        dataset, jobs, preprocessor, processor, device
     )
-    
-    progress = tqdm.tqdm(total=analyzed_direction_count, unit='dir')
-    for job, y in runner.run(jobs, sequential=True):
-        i = job.key
-        indices = groups[i]
-        assert np.all(indices[:-1] < indices[1:])
-        for j, index in enumerate(indices):
-            builder.add_block(index, np.asarray(y[j,:,None]))
-        builder.next_block_row()
-        progress.update(1)
-    progress.close()
+    results = [y for _, y in tqdm.tqdm(stream, total=len(jobs), unit='dir')]
 
-    embeddings = builder.build()
-    similarities = embeddings @ embeddings.T
-    similarities /= abs(similarities).max()
-    
-    logger.info('Synchronizing')
-    synchronization_transform, _ = synchronization.burer_monteiro_ortho_group_synchronization(
-        similarities,
-        synchronization.burer_monteiro_random_start(
-            n=analyzed_direction_count,
-            k=component_count,
-            p=2*component_count+1
-        )
-    )
-    
-    logger.info('Correcting orientations')
-    embeddings = synchronization.correct_embeddings(
-        embeddings=embeddings,
-        transforms=synchronization_transform
-    )
-    
-    similarities = embeddings @ embeddings.T
-    similarities /= abs(similarities).max()
-    
-    logger.info('Averaging')
-    unified_embedding = synchronization.average_embeddings(
-        embeddings=embeddings, 
-        max_iter=0 # TODO: Set it 16 when fixed.
-    )
-    
-    logger.info('Computing PCA for the output')
-    pca = sklearn.decomposition.PCA(n_components=component_count)
-    unified_embedding = pca.fit_transform(unified_embedding)
+    embeddings = stack_embeddings(jobs, results, image_count)
+    unified_embedding = _unify_embeddings(embeddings, len(jobs), args.components)
 
-    particles_md['factoremEmbedding'] = [
+    particles['factoremEmbedding'] = [
         '[' + ', '.join(f'{v:.4e}' for v in row) + ']'
         for row in unified_embedding
     ]
-    particles_md['factoremGroupCount'] = image_multiplicity
-    star['particles'] = particles_md
+    particles['factoremGroupCount'] = group_count
+    star['particles'] = particles
     starfile.write(star, args.output)
+
 
 def main(argv=None) -> Optional[int]:
     args = _parse_args(argv)
     run(args)
+
 
 if __name__ == '__main__':
     sys.exit(main())
