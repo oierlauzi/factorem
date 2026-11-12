@@ -1,6 +1,6 @@
 """The datasets used to benchmark factorem and what is known about each."""
-from dataclasses import dataclass, field
-from typing import Dict, Optional
+
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -17,7 +17,7 @@ class Dataset:
     bad: tuple = ()  # Corrupt particles (0-based).
 
 
-DATASETS: Dict[str, Dataset] = {
+DATASETS: dict[str, Dataset] = {
     # CryoBench IgG-1D: 100 conformations x 1000 particles around a closed
     # circular motion; particle i is in state i // 1000.
     'igg': Dataset(
@@ -47,7 +47,7 @@ DATASETS: Dict[str, Dataset] = {
 }
 
 
-def ground_truth(name: str, count: int) -> Dict[str, np.ndarray]:
+def ground_truth(name: str, count: int) -> dict[str, np.ndarray]:
     """Per-particle references to score an embedding against."""
     if name == 'igg':
         return {'state': np.arange(count) // 1000}
@@ -55,12 +55,18 @@ def ground_truth(name: str, count: int) -> Dict[str, np.ndarray]:
         labels = f'{BENCH}/labels'
         return {
             # Davis et al. 2016 classes; -1 marks particles they discarded.
-            'major': np.load(f'{labels}/published_labels_major.npz')['arr_0'].astype(int),
-            'minor': np.load(f'{labels}/published_labels.npz')['arr_0'].astype(int),
+            'major': np.load(f'{labels}/published_labels_major.npz')[
+                'arr_0'
+            ].astype(int),
+            'minor': np.load(f'{labels}/published_labels.npz')['arr_0'].astype(
+                int
+            ),
         }
     if name == 'e10180':
         # Particles cryoDRGN kept after filtering its latent space.
         kept = np.zeros(count, dtype=int)
-        kept[np.load(f'{BENCH}/labels/cdrgn_10180_filtered.ind.npz')['arr_0']] = 1
+        kept[
+            np.load(f'{BENCH}/labels/cdrgn_10180_filtered.ind.npz')['arr_0']
+        ] = 1
         return {'kept': kept}
     raise KeyError(name)

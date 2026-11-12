@@ -1,7 +1,6 @@
 """Scores for a latent embedding. All of them look only at the nearest
 neighbours of each particle, so they are invariant to rotations of the latent
 space and do not assume a shape for the conformational manifold."""
-from typing import Dict, Optional
 
 import numpy as np
 import sklearn.neighbors
@@ -21,7 +20,7 @@ def circular_error(nn: np.ndarray, states: np.ndarray, period: int) -> float:
     return float(np.minimum(delta, period - delta).mean())
 
 
-def label_accuracy(nn: np.ndarray, labels: np.ndarray) -> Dict[str, float]:
+def label_accuracy(nn: np.ndarray, labels: np.ndarray) -> dict[str, float]:
     """Leave-one-out majority vote of the neighbours. Reports plain and class
     balanced accuracy."""
     classes, encoded = np.unique(labels, return_inverse=True)
@@ -38,18 +37,21 @@ def explained_variance(nn: np.ndarray, target: np.ndarray) -> float:
     predicts (leave-one-out k-NN regression R2, pooled over columns)."""
     target = target.reshape(len(target), -1)
     residual = target - target[nn].mean(axis=1)
-    return float(1.0 - np.square(residual).sum() / np.square(target - target.mean(0)).sum())
+    return float(
+        1.0
+        - np.square(residual).sum() / np.square(target - target.mean(0)).sum()
+    )
 
 
 def evaluate(
     name: str,
     z: np.ndarray,
-    truth: Dict[str, np.ndarray],
-    reference: Optional[Dict[str, np.ndarray]] = None,
-    nuisance: Optional[Dict[str, np.ndarray]] = None,
-    valid: Optional[np.ndarray] = None,
+    truth: dict[str, np.ndarray],
+    reference: dict[str, np.ndarray] | None = None,
+    nuisance: dict[str, np.ndarray] | None = None,
+    valid: np.ndarray | None = None,
     k: int = 10,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Score embedding ``z`` of dataset ``name``.
 
     ``reference`` holds other embeddings (RECOVAR) and ``nuisance`` holds
@@ -70,7 +72,9 @@ def evaluate(
         for key in ('major', 'minor'):
             # Score on the particles the authors classified.
             mask = valid & (truth[key] >= 0)
-            for metric, value in label_accuracy(knn(mask), truth[key][mask]).items():
+            for metric, value in label_accuracy(
+                knn(mask), truth[key][mask]
+            ).items():
                 out[f'{key}_{metric}'] = value
     elif name == 'e10180':
         for metric, value in label_accuracy(nn, truth['kept'][valid]).items():

@@ -4,32 +4,94 @@ build-backend = "hatchling.build"
 
 [project]
 name = "factorem"
-version = "0.1.0"
-description = "Heterogeneity analysis pipeline for CryoEM"
+version = "0.2.0"
+description = "Continuous heterogeneity analysis of cryo-EM particles"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Oier Lauzirika Zarrabeitia", email = "oierlauzu@bizkaia.eu" }
+    { name = "Oier Lauzirika Zarrabeitia", email = "oierlauzu@bizkaia.eu" },
 ]
 requires-python = ">=3.10"
+keywords = ["cryo-EM", "heterogeneity", "single particle analysis"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
 dependencies = [
-    "jax",
-    "starfile",
-    "numpy",
-    "pandas",
-    "scipy",
-    "tqdm",
-    "scikit-learn",
+    "jax>=0.4.31",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "starfile>=0.5.2",
     "vitrio>=0.2",
 ]
 
 [project.optional-dependencies]
+cuda12 = ["jax[cuda12]"]
+cuda13 = ["jax[cuda13]"]
 dev = [
-    "pytest",
+    "mypy>=2.0",
+    "pandas-stubs",
+    "pytest>=8",
+    "pytest-cov",
+    "ruff>=0.9",
 ]
 
 [project.scripts]
-factorem = "factorem.__main__:main"
+factorem = "factorem.cli:main"
 
 [project.urls]
 Repository = "https://github.com/oierlauzi/factorem"
+Issues = "https://github.com/oierlauzi/factorem/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/factorem"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: runs the whole pipeline on simulated particles",
+]
+
+[tool.coverage.run]
+source = ["factorem"]
+
+[tool.ruff]
+line-length = 80
+src = ["src", "tests", "benchmarks"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",  # pycodestyle
+    "F",       # pyflakes
+    "I",       # isort
+    "B",       # bugbear
+    "UP",      # pyupgrade
+    "SIM",     # simplifications
+    "NPY",     # numpy
+    "RUF",
+]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src"]
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = ["starfile.*"]
+ignore_missing_imports = true

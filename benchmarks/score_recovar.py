@@ -1,4 +1,5 @@
 """Score the RECOVAR embeddings with the same metrics used for factorem."""
+
 import json
 import sys
 
@@ -15,4 +16,9 @@ for name in sys.argv[1:]:
     reference = {'recovar4': zs['z4'], 'recovar10': zs['z10']}
     for key in zs.files:
         scores = metrics.evaluate(name, zs[key], truth, reference)
-        print(name, key, json.dumps({k: round(v, 4) for k, v in scores.items()}), flush=True)
+        print(
+            name,
+            key,
+            json.dumps({k: round(v, 4) for k, v in scores.items()}),
+            flush=True,
+        )

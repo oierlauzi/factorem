@@ -1,0 +1,96 @@
+"""The whole analysis on simulated particles."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pandas as pd
+import pytest
+import starfile
+
+import factorem
+from factorem.cli import main
+from factorem.io import parse_embedding
+
+
+def _explained(coordinates: np.ndarray, latent: np.ndarray) -> np.ndarray:
+    """Fraction of the variance of each latent coordinate that a linear
+    function of the embedding accounts for."""
+    design = np.column_stack((coordinates, np.ones(len(coordinates))))
+    fit, *_ = np.linalg.lstsq(design, latent, rcond=None)
+    residual = latent - design @ fit
+    return 1.0 - residual.var(axis=0) / latent.var(axis=0)
+
+
+@pytest.mark.slow
+def test_recovers_the_motions(simulation):
+    dataset = factorem.StarDataset.read(simulation.path, root=simulation.root)
+    embedding = factorem.analyze(
+        dataset.particles, diameter=simulation.diameter, components=4
+    )
+
+    assert embedding.coordinates.shape == (len(simulation.latent), 4)
+    assert np.isfinite(embedding.coordinates).all()
+    assert (embedding.group_count > 0).all()
+    assert np.all(np.diff(embedding.variances) <= 0.0)
+    assert np.all(_explained(embedding.coordinates, simulation.latent) > 0.45)
+
+
+@pytest.mark.slow
+def test_command_line(simulation, tmp_path, monkeypatch):
+    monkeypatch.chdir(simulation.root)
+    output = tmp_path / 'embedded.star'
+    status = main(
+        [
+            'particles.star',
+            str(output),
+            '--diameter',
+            str(simulation.diameter),
+            '--components',
+            '3',
+            '--scratch',
+            str(tmp_path),
+        ]
+    )
+    assert status == 0
+
+    tables = starfile.read(output, always_dict=True)
+    assert set(tables) == {'optics', 'particles'}
+    coordinates = parse_embedding(tables['particles']['factoremEmbedding'])
+    assert coordinates.shape == (len(simulation.latent), 3)
+    assert (tables['particles']['factoremGroupCount'] > 0).all()
+    assert np.all(_explained(coordinates, simulation.latent) > 0.45)
+
+
+@dataclass(frozen=True)
+class _BrokenEmbedder:
+    def __call__(
+        self, x: jax.Array, c: jax.Array, valid: jax.Array, components: int
+    ) -> tuple[jax.Array, jax.Array]:
+        return (
+            jnp.full((x.shape[0], components), jnp.nan),
+            jnp.full((x.shape[1], components), jnp.nan),
+        )
+
+
+def test_embeddings_that_are_not_finite_are_reported(simulation):
+    dataset = factorem.StarDataset.read(simulation.path, root=simulation.root)
+    with pytest.raises(ValueError, match='not finite'):
+        factorem.analyze(
+            dataset.particles,
+            diameter=simulation.diameter,
+            embedder=_BrokenEmbedder(),
+        )
+
+
+def test_command_line_reports_bad_input(tmp_path, capsys):
+    path = tmp_path / 'empty.star'
+    starfile.write(
+        {'particles': pd.DataFrame({'rlnAngleRot': [1.0, 2.0]})}, path
+    )
+    status = main([str(path), str(tmp_path / 'out.star'), '--diameter', '10'])
+    assert status == 1
+    assert 'factorem: error' in capsys.readouterr().err
