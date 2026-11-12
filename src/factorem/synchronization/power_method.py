@@ -73,7 +73,10 @@ def synchronize(
         items = slice(bounds[piece], bounds[piece + 1])
         pairs = slice(edges[items.start], edges[items.stop])
         told = blocks[pairs] @ x[targets[pairs]]
-        return np.add.reduceat(told, first[items] - pairs.start, axis=0)
+        total: np.ndarray = np.add.reduceat(
+            told, first[items] - pairs.start, axis=0
+        )
+        return total
 
     previous = None
     iterations = 0
