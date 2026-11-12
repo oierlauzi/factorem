@@ -35,7 +35,7 @@ assume no shape for it ([metrics.py](metrics.py)).
 
 ## Results
 
-factorem 0.2.0 at its default of 16 Å, with 6 (its default) and 10
+factorem 0.1.0 at its default of 16 Å, with 6 (its default) and 10
 components and nothing else but the diameter given, against RECOVAR 0.4.5
 with 4 and 10 dimensions (and 6 on IgG-1D). One NVIDIA RTX PRO 4500 (32 GB)
 and 72 cores.

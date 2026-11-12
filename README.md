@@ -14,14 +14,14 @@ physical inputs: the diameter of the particle and the resolution to look at.
 ## Installation
 
 ```sh
-pip install git+https://github.com/oierlauzi/factorem
+pip install factorem
 ```
 
 For an NVIDIA GPU, ask for the `cuda13` or the `cuda12` extra, which bring
 the matching build of JAX:
 
 ```sh
-pip install 'factorem[cuda13] @ git+https://github.com/oierlauzi/factorem'
+pip install 'factorem[cuda13]'
 ```
 
 It needs Python 3.10 or later. Images are read with
@@ -72,7 +72,7 @@ dataset.write('embedded.star', embedding.coordinates, embedding.group_count)
 ```
 
 `analyze` chains stages that are public as well, and each can be replaced.
-[examples/stages.py](examples/stages.py) calls them one by one:
+[examples/stages.py][stages] calls them one by one:
 
 | Stage | Function | Replace it with |
 |---|---|---|
@@ -170,10 +170,9 @@ On one NVIDIA RTX PRO 4500, with the files in the cache of the system:
 reading them from disk for the first time can take longer than the
 analysis. RECOVAR took 42 min on IgG-1D.
 
-[benchmarks](benchmarks/README.md) has the details, and what else was
-tried: other image metrics (Wiener corrected, ManifoldEM, Mahalanobis),
-diffusion maps and MDS, and the synchronization of the particles that
-directions share.
+[benchmarks][benchmarks] has the details, and what else was tried: other
+image metrics (Wiener corrected, ManifoldEM, Mahalanobis), diffusion maps
+and MDS, and the synchronization of the particles that directions share.
 
 ## Development
 
@@ -187,7 +186,12 @@ mypy
 The tests simulate their own particles and run on the CPU in under a
 minute. The same checks run for every push and pull request, on every
 supported Python and with the oldest supported dependencies, in
-[GitHub Actions](.github/workflows/ci.yml).
+[GitHub Actions][ci].
+
+To release, push a tag `v` followed by the version of `pyproject.toml`, such
+as `v0.1.0`. The same workflow then publishes the distributions it built and
+tested to [PyPI](https://pypi.org/project/factorem/), which trusts it
+without a token.
 
 ```
 src/factorem/
@@ -205,4 +209,9 @@ benchmarks/             Scores against published labels and RECOVAR
 
 ## License
 
-GPL-3.0. See [LICENSE](LICENSE).
+GPL-3.0. See [LICENSE][license].
+
+[stages]: https://github.com/oierlauzi/factorem/blob/main/examples/stages.py
+[benchmarks]: https://github.com/oierlauzi/factorem/blob/main/benchmarks/README.md
+[ci]: https://github.com/oierlauzi/factorem/blob/main/.github/workflows/ci.yml
+[license]: https://github.com/oierlauzi/factorem/blob/main/LICENSE

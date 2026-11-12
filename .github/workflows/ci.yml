@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -79,3 +80,28 @@ jobs:
         with:
           name: dist
           path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    # Only what a tag of a version built, once everything else passed.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test, test-minimum, build]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/factorem/
+    permissions:
+      # For PyPI to trust the workflow, with no token to keep.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Check that the tag is the version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "dist/factorem-${version}.tar.gz"
+          test -f "dist/factorem-${version}-py3-none-any.whl"
+      - uses: pypa/gh-action-pypi-publish@release/v1

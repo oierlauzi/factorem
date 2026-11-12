@@ -1,10 +1,10 @@
 # Changelog
 
-## 0.2.0
+## 0.1.0
 
-A rewrite from scratch, around the method that a sweep of image metrics,
-dimensionality reductions and synchronizations settled on (see
-[benchmarks](benchmarks/README.md)).
+The first release: a rewrite from scratch of what was in this repository,
+around the method that a sweep of image metrics, dimensionality reductions
+and synchronizations settled on (see [benchmarks](benchmarks/README.md)).
 
 - Each projection direction is embedded by probabilistic PCA with the CTF
   in its model, on images that are masked, whitened with the noise of
