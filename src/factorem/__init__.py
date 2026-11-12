@@ -28,7 +28,11 @@ from .io import ImageStack, StarDataset, StarFormatError, load_images
 from .merging import merge_directions, principal_components
 from .particles import CtfParameters, Particles
 from .pipeline import Design, Embedding, analyze
-from .synchronization import CommonLineSynchronizer, Synchronizer
+from .synchronization import (
+    BurerMonteiroSynchronizer,
+    CommonLineSynchronizer,
+    Synchronizer,
+)
 
 try:
     __version__ = metadata.version('factorem')
@@ -36,6 +40,7 @@ except metadata.PackageNotFoundError:  # Not installed: run from the sources.
     __version__ = '0+unknown'
 
 __all__ = [
+    'BurerMonteiroSynchronizer',
     'CommonLineSynchronizer',
     'CtfParameters',
     'Design',

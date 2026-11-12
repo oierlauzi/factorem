@@ -59,7 +59,7 @@ def main() -> None:
     )
 
     # The transform that takes each of them to a frame common to all.
-    transforms = factorem.CommonLineSynchronizer()(directional)
+    transforms = factorem.BurerMonteiroSynchronizer()(directional)
 
     # Their average, along its principal axes.
     merged = factorem.merge_directions(directional, transforms, len(particles))
