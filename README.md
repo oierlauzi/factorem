@@ -59,8 +59,19 @@ directions it was analysed with.
 | `--synchronization` | `common-lines` | How the directions are brought to a common frame: `common-lines`, by the common lines of their eigenimages, or `burer-monteiro`, by the particles they share. |
 | `--root` | working directory | Directory that the images named in the STAR file are relative to. |
 | `--device` | first GPU, else CPU | Such as `cpu` or `gpu:1`. |
-| `--scratch` | none | Directory to keep the working images in, instead of in memory. |
+| `--preload` | | Copy the images to memory, instead of reading them from their files every time they are needed. |
+| `--scratch` | none | File or directory on a fast disk to copy the images to, and to read them from instead. |
 | `-v` | | Report the progress. |
+
+The images are read from their files as each projection direction needs
+them, so that only a few are in memory at a time. Every image is needed by
+a dozen directions and is read for each one, which costs little from a
+fast disk, or from files the system keeps in its cache. Where the files
+are slow to reach, such as on a hard disk or over a network, `--preload`
+reads them once into memory, as large as their files, and `--scratch` once
+into a file on a fast disk, which the next run finds again. A directory
+given as scratch keeps a file for each set of particles, and removes the
+ones used least recently when its disk fills up.
 
 The same from Python:
 

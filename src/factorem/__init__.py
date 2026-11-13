@@ -25,7 +25,7 @@ from .geometry import (
     group_by_direction,
     sample_directions,
 )
-from .io import ImageStack, StarDataset, StarFormatError, load_images
+from .io import ParticleImages, StarDataset, StarFormatError, open_images
 from .merging import merge_directions, principal_components
 from .particles import CtfParameters, Particles
 from .pipeline import Design, Embedding, analyze
@@ -49,8 +49,8 @@ __all__ = [
     'DirectionalEmbedding',
     'Embedder',
     'Embedding',
-    'ImageStack',
     'MahalanobisMDS',
+    'ParticleImages',
     'Particles',
     'ProbabilisticPCA',
     'StarDataset',
@@ -60,8 +60,8 @@ __all__ = [
     'embed_directions',
     'euler_to_matrix',
     'group_by_direction',
-    'load_images',
     'merge_directions',
+    'open_images',
     'principal_components',
     'sample_directions',
 ]

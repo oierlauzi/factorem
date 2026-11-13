@@ -109,10 +109,20 @@ def _add_analyze(commands: Any, shared: argparse.ArgumentParser) -> None:
         help='Device to compute on, such as cpu or gpu:0 (default: the '
         'first GPU, or the CPU without one).',
     )
-    parser.add_argument(
+    copies = parser.add_mutually_exclusive_group()
+    copies.add_argument(
+        '--preload',
+        action='store_true',
+        help='Copy the images to memory, instead of reading them from '
+        'their files every time they are needed.',
+    )
+    copies.add_argument(
         '--scratch',
-        metavar='DIRECTORY',
-        help='Directory to keep the working images in, instead of in memory.',
+        metavar='PATH',
+        help='File or directory on a fast disk to copy the images to, and '
+        'to read them from every time they are needed. A file is kept for '
+        'the next run, and an existing directory keeps the copies of as '
+        'many runs as fit in its disk.',
     )
     parser.set_defaults(run=_analyze)
 
@@ -147,6 +157,7 @@ def _analyze(args: argparse.Namespace) -> int:
             embedder=embedder,
             synchronizer=synchronizer,
             device=args.device,
+            preload=args.preload,
             scratch=args.scratch,
         )
     except (StarFormatError, OSError, ValueError) as error:

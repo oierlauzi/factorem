@@ -13,7 +13,7 @@ import numpy as np
 from ._device import resolve_device
 from .embedding import Embedder, ProbabilisticPCA, embed_directions
 from .geometry import group_by_direction, sample_directions
-from .io.images import load_images
+from .io.images import open_images
 from .merging import merge_directions, principal_components
 from .particles import Particles
 from .synchronization import CommonLineSynchronizer, Synchronizer
@@ -79,6 +79,7 @@ def analyze(
     embedder: Embedder | None = None,
     synchronizer: Synchronizer | None = None,
     device: str | jax.Device | None = None,
+    preload: bool = False,
     scratch: str | os.PathLike[str] | None = None,
 ) -> Embedding:
     """Embed particles according to their heterogeneity.
@@ -86,6 +87,11 @@ def analyze(
     The particles are grouped by projection direction and each group is
     embedded on its own, as a set of 2D images. The embeddings of all the
     directions are then brought to a common frame and averaged.
+
+    The images are read from their files as each direction needs them, so
+    that few are in memory at a time. Every image is read for each of the
+    directions it belongs to, a dozen of them, which ``preload`` and
+    ``scratch`` make cheap where the files are slow to reach.
 
     Args:
         particles: The particles, with the alignment and the CTF of a
@@ -103,8 +109,10 @@ def analyze(
             goes by the particles they share instead.
         device: Where to compute, such as ``'cpu'`` or ``'gpu:0'``.
             Defaults to the default device of JAX.
-        scratch: A directory to keep the working images in, instead of in
-            memory.
+        preload: Whether to copy the images to memory, which must have
+            room for them as their files hold them.
+        scratch: A file or a directory on a fast disk to copy the images
+            to, as `open_images` takes it.
 
     Returns:
         The coordinates of each particle.
@@ -123,15 +131,13 @@ def analyze(
     embedder = embedder or ProbabilisticPCA()
     synchronizer = synchronizer or CommonLineSynchronizer()
     device = resolve_device(device)
-    start = time.monotonic()
 
-    stack = load_images(
+    images = open_images(
         particles,
         resolution / design.oversampling,
-        device=device,
+        preload=preload,
         scratch=scratch,
     )
-    logger.info('Read the images in %.0f s', time.monotonic() - start)
 
     shannon_angle = resolution / diameter
     internal = max(components, design.min_components)
@@ -140,7 +146,6 @@ def analyze(
         sample_directions(design.direction_spacing * shannon_angle),
         design.aperture * shannon_angle,
         min_size=design.images_per_component * internal,
-        usable=stack.usable,
     )
     if len(groups) == 0:
         raise ValueError(
@@ -150,7 +155,7 @@ def analyze(
 
     checkpoint = time.monotonic()
     directional = embed_directions(
-        stack,
+        images,
         particles,
         groups,
         resolution=resolution,
@@ -161,7 +166,8 @@ def analyze(
         device=device,
     )
     logger.info(
-        'Embedded the directions in %.0f s', time.monotonic() - checkpoint
+        'Read and embedded the directions in %.0f s',
+        time.monotonic() - checkpoint,
     )
 
     checkpoint = time.monotonic()
@@ -174,6 +180,6 @@ def analyze(
     )
     return Embedding(
         coordinates=coordinates,
-        group_count=groups.multiplicity(len(particles)),
+        group_count=directional.groups.multiplicity(len(particles)),
         variances=variances,
     )

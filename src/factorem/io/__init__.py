@@ -1,6 +1,6 @@
 """Reading particles and their images, and writing the results."""
 
-from .images import ImageStack, load_images
+from .images import ParticleImages, open_images
 from .star import (
     EMBEDDING_LABEL,
     GROUP_COUNT_LABEL,
@@ -14,11 +14,11 @@ from .star import (
 __all__ = [
     'EMBEDDING_LABEL',
     'GROUP_COUNT_LABEL',
-    'ImageStack',
+    'ParticleImages',
     'StarDataset',
     'StarFormatError',
     'format_embedding',
-    'load_images',
+    'open_images',
     'parse_embedding',
     'particles_from_tables',
 ]

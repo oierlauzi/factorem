@@ -22,8 +22,12 @@ synchronizations.
   the first.
 - The inputs are the diameter of the particle, the resolution and the
   number of components. The aperture and kernel options are gone.
-- Images are read once and resampled for the resolution. Corrupt images
-  are reported and left out. STAR files of RELION before 3.1 are read.
+- Images are read from their files as each projection direction needs
+  them, and resampled for the resolution, so that few are in memory at a
+  time. `--preload` copies them to memory instead, and `--scratch` to a
+  file or a directory on a fast disk.
+- Corrupt images are reported and left out. STAR files of RELION before
+  3.1 are read.
 - The package is typed and tested, and its stages are public: `Embedder`
   and `Synchronizer` are protocols to implement alternatives with.
 - Only JAX, vitrio, NumPy, pandas and starfile are needed.

@@ -30,8 +30,8 @@ def main() -> None:
     particles = dataset.particles
     design = factorem.Design()
 
-    # The images, read once at four pixels to the resolution.
-    stack = factorem.load_images(
+    # The images, to be read at four pixels to the resolution.
+    images = factorem.open_images(
         particles, args.resolution / design.oversampling
     )
 
@@ -44,12 +44,12 @@ def main() -> None:
         factorem.sample_directions(design.direction_spacing * shannon_angle),
         design.aperture * shannon_angle,
         min_size=design.images_per_component * internal,
-        usable=stack.usable,
     )
 
-    # An embedding of the particles of each direction, as 2D images.
+    # An embedding of the particles of each direction, as 2D images, which
+    # are read as each direction comes.
     directional = factorem.embed_directions(
-        stack,
+        images,
         particles,
         groups,
         resolution=args.resolution,
@@ -67,7 +67,11 @@ def main() -> None:
         merged, args.components
     )
     print('Variance along each axis:', variances.round(3))
-    dataset.write(args.output, coordinates, groups.multiplicity(len(particles)))
+    dataset.write(
+        args.output,
+        coordinates,
+        directional.groups.multiplicity(len(particles)),
+    )
 
 
 if __name__ == '__main__':

@@ -24,6 +24,8 @@ def test_arguments():
     assert arguments.embedding == 'ppca'
     assert arguments.synchronization == 'common-lines'
     assert arguments.device is None
+    assert not arguments.preload
+    assert arguments.scratch is None
     assert not arguments.verbose
 
     arguments = build_parser().parse_args(
@@ -34,11 +36,16 @@ def test_arguments():
             'mahalanobis-mds',
             '--synchronization',
             'burer-monteiro',
+            '--preload',
         ]
     )
     assert arguments.embedding == 'mahalanobis-mds'
     assert arguments.synchronization == 'burer-monteiro'
+    assert arguments.preload
     assert arguments.verbose
+
+    arguments = build_parser().parse_args([*_ANALYZE, '--scratch', '/fast'])
+    assert arguments.scratch == '/fast'
 
 
 _ANALYZE = ['analyze', 'in.star', 'out.star', '--diameter', '100']
@@ -56,6 +63,7 @@ _ANALYZE = ['analyze', 'in.star', 'out.star', '--diameter', '100']
         [*_ANALYZE, '--resolution', 'fine'],
         [*_ANALYZE, '--embedding', 'x'],
         [*_ANALYZE, '--synchronization', 'x'],
+        [*_ANALYZE, '--preload', '--scratch', '/fast'],
     ],
 )
 def test_bad_arguments_are_refused(arguments, capsys):

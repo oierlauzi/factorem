@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import starfile
+import vitrio as vio
 
 import factorem
 from factorem.cli import main
@@ -80,6 +81,29 @@ def test_command_line(simulation, tmp_path, monkeypatch):
     assert coordinates.shape == (len(simulation.latent), 3)
     assert (tables['particles']['factoremGroupCount'] > 0).all()
     assert np.all(_explained(coordinates, simulation.latent) > 0.3)
+
+
+@pytest.mark.slow
+def test_images_without_data_are_left_out(simulation, tmp_path, caplog):
+    dataset = factorem.StarDataset.read(simulation.path, root=simulation.root)
+    particles = dataset.particles
+    blank = np.zeros((2, simulation.box_size, simulation.box_size))
+    blank[1] = np.nan
+    vio.write_stack(blank.astype(np.float32), str(tmp_path / 'blank.mrcs'))
+    images = list(particles.images)
+    images[7] = vio.ImageLocation(tmp_path / 'blank.mrcs', 0)
+    images[1234] = vio.ImageLocation(tmp_path / 'blank.mrcs', 1)
+
+    with caplog.at_level('WARNING'):
+        embedding = factorem.analyze(
+            replace(particles, images=images), diameter=simulation.diameter
+        )
+    assert '[7, 1234]' in caplog.text
+    left_out = np.zeros(len(particles), dtype=bool)
+    left_out[[7, 1234]] = True
+    assert np.isnan(embedding.coordinates[left_out]).all()
+    assert np.isfinite(embedding.coordinates[~left_out]).all()
+    np.testing.assert_array_equal(embedding.group_count == 0, left_out)
 
 
 @dataclass(frozen=True)

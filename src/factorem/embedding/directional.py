@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 from typing import NamedTuple, TypeVar
@@ -33,7 +33,7 @@ from ..imaging import (
     transform_image,
     view_offsets,
 )
-from ..io.images import ImageStack
+from ..io.images import ParticleImages
 from ..particles import Particles
 from .base import Embedder
 from .ppca import ProbabilisticPCA
@@ -41,7 +41,6 @@ from .ppca import ProbabilisticPCA
 logger = logging.getLogger(__name__)
 
 T = TypeVar('T')
-U = TypeVar('U')
 
 # Images go through alignment this many at a time, and groups are filled up
 # to a multiple of it, so that few sizes have to be compiled.
@@ -54,6 +53,7 @@ class DirectionalEmbedding:
     direction in a frame of its own."""
 
     groups: DirectionGroups
+    """The projection directions and the particles embedded with each."""
     coordinates: tuple[np.ndarray, ...]
     """Coordinates of the members of each direction,
     ``(members, components)``."""
@@ -93,18 +93,18 @@ class _Constants(NamedTuple):
 
 
 def _make_constants(
-    stack: ImageStack,
+    images: ParticleImages,
     band: FourierBand,
     resolution: float,
     mask_diameter: float,
     device: jax.Device,
 ) -> _Constants:
-    size = stack.box_size
-    edge = resolution / stack.pixel_size
-    radius = min(0.5 * mask_diameter / stack.pixel_size, 0.5 * size - 2 * edge)
+    size = images.box_size
+    edge = resolution / images.pixel_size
+    radius = min(0.5 * mask_diameter / images.pixel_size, 0.5 * size - 2 * edge)
     if radius <= 0.0:
         raise ValueError(
-            f'A box of {size * stack.pixel_size:.0f} A is too small to '
+            f'A box of {size * images.pixel_size:.0f} A is too small to '
             f'analyse at a resolution of {resolution:.0f} A.'
         )
     # The background is what is left of the largest disc that every in-plane
@@ -113,7 +113,7 @@ def _make_constants(
     background = soft_disc(size, 0.5 * size - edge, edge) - mask
     gain = np.square(mask).sum() / np.square(background).sum()
 
-    box = size * stack.pixel_size
+    box = size * images.pixel_size
 
     def put(value: np.ndarray, dtype: type) -> jax.Array:
         on_device: jax.Array = jax.device_put(value.astype(dtype), device)
@@ -217,7 +217,7 @@ def _embed_group(
     images: jax.Array,
     rotations: jax.Array,
     ctf_parameters: jax.Array,
-    count: jax.Array,
+    valid: jax.Array,
     frame: jax.Array,
     constants: _Constants,
     *,
@@ -226,7 +226,7 @@ def _embed_group(
     view_order: int,
     shell_count: int,
 ) -> tuple[jax.Array, jax.Array]:
-    valid = (jnp.arange(len(images)) < count).astype(images.dtype)
+    valid = valid.astype(images.dtype)
     signal, transfer, power, offsets = jax.lax.map(
         partial(_image_features, frame, constants),
         (images, rotations, ctf_parameters),
@@ -266,22 +266,18 @@ def _padded_size(count: int) -> int:
     return -(-count // step) * step
 
 
-def _prefetch(
-    function: Callable[[T], U], items: Iterable[T], depth: int = 4
-) -> Iterator[U]:
-    """Results of a function, computed on other threads ahead of use."""
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        pending: deque[Future[U]] = deque()
-        for item in items:
-            pending.append(pool.submit(function, item))
-            if len(pending) > depth:
-                yield pending.popleft().result()
-        while pending:
-            yield pending.popleft().result()
+def _ahead(items: Iterator[T]) -> Iterator[T]:
+    """Go through some items, each one drawn by another thread while the
+    one before it is worked on."""
+    with ThreadPoolExecutor(1) as pool:
+        following = pool.submit(next, items, None)
+        while (item := following.result()) is not None:
+            following = pool.submit(next, items, None)
+            yield item
 
 
 def embed_directions(
-    stack: ImageStack,
+    images: ParticleImages,
     particles: Particles,
     groups: DirectionGroups,
     *,
@@ -297,10 +293,11 @@ def embed_directions(
     The particles of a direction are rotated in plane to its frame, masked
     and reduced to their Fourier coefficients up to the resolution. Their
     mean is removed, their noise is whitened, and the embedder does the
-    rest.
+    rest. The images are read as each direction needs them, and the
+    particles whose image holds no usable data are left out.
 
     Args:
-        stack: The images of the particles, as `load_images` reads them.
+        images: The images of the particles, as `open_images` finds them.
         particles: The particles.
         groups: The projection directions and their particles.
         resolution: Resolution of the analysis [A].
@@ -315,7 +312,8 @@ def embed_directions(
 
     Returns:
         The coordinates of the particles of each direction and their
-        eigenimages.
+        eigenimages. Its groups are the ones given, without the particles
+        left out.
 
     Raises:
         ValueError: If the embedding of some direction is not finite.
@@ -323,8 +321,8 @@ def embed_directions(
     if embedder is None:
         embedder = ProbabilisticPCA()
     device = resolve_device(device)
-    band = make_fourier_band(stack.box_size, stack.pixel_size / resolution)
-    constants = _make_constants(stack, band, resolution, mask_diameter, device)
+    band = make_fourier_band(images.box_size, images.pixel_size / resolution)
+    constants = _make_constants(images, band, resolution, mask_diameter, device)
     rotations = jax.device_put(particles.rotations.astype(np.float32), device)
     ctf_parameters = jax.device_put(
         particles.ctf.as_array().astype(np.float32), device
@@ -338,40 +336,60 @@ def embed_directions(
         len(band),
     )
 
-    def gather(members: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        indices = np.resize(members, _padded_size(len(members)))
-        return indices, stack.images[indices]
-
+    members: list[np.ndarray] = []
     coordinates: list[np.ndarray] = []
     eigenimages: list[np.ndarray] = []
     # The device works on a few directions while the results of the ones
     # before are brought back.
-    pending: deque[tuple[int, jax.Array, jax.Array]] = deque()
+    pending: deque[tuple[np.ndarray, np.ndarray, jax.Array, jax.Array]] = (
+        deque()
+    )
 
     def collect() -> None:
-        count, y, w = pending.popleft()
-        coordinates.append(np.asarray(y)[:count])
+        group, usable, y, w = pending.popleft()
+        members.append(group[usable])
+        coordinates.append(np.asarray(y)[: len(group)][usable])
         eigenimages.append(np.asarray(w))
 
+    # The images of a direction are read, and brought to the device, on
+    # other threads while the direction before it is embedded.
+    def bring() -> Iterator[tuple[np.ndarray, tuple[jax.Array, ...]]]:
+        for group, frame, (read, usable) in zip(
+            groups.members,
+            groups.frames,
+            _ahead(images.read(groups.members, device)),
+            strict=True,
+        ):
+            # A group is filled up with members of its own, which do not
+            # count.
+            filling = np.resize(np.arange(len(group)), _padded_size(len(group)))
+            valid = usable[filling]
+            valid[len(group) :] = False
+            inputs = (
+                read[filling],
+                group[filling],
+                valid,
+                frame.astype(np.float32),
+            )
+            yield usable, jax.device_put(inputs, device)
+
     start = last = time.monotonic()
-    batches = _prefetch(gather, groups.members)
-    for i, (members, frame, (indices, images)) in enumerate(
-        zip(groups.members, groups.frames, batches, strict=True)
+    for i, (group, (usable, (read, indices, valid, frame))) in enumerate(
+        zip(groups.members, _ahead(bring()), strict=True)
     ):
-        on_device = jax.device_put(indices, device)
         y, w = _embed_group(
-            jax.device_put(images, device),
-            rotations[on_device],
-            ctf_parameters[on_device],
-            jax.device_put(np.int32(len(members)), device),
-            jax.device_put(frame.astype(np.float32), device),
+            read,
+            rotations[indices],
+            ctf_parameters[indices],
+            valid,
+            frame,
             constants,
             embedder=embedder,
             components=components,
             view_order=view_order,
             shell_count=band.shell_count,
         )
-        pending.append((len(members), y, w))
+        pending.append((group, usable, y, w))
         if len(pending) > 2:
             collect()
         if time.monotonic() - last > 30.0:
@@ -385,6 +403,16 @@ def embed_directions(
     while pending:
         collect()
 
+    unusable = np.setdiff1d(
+        np.concatenate(groups.members), np.concatenate(members)
+    )
+    if len(unusable):
+        logger.warning(
+            'Images left out for holding no usable data (%d): %s',
+            len(unusable),
+            unusable.tolist(),
+        )
+
     broken = sum(
         not (np.isfinite(y).all() and np.isfinite(w).all())
         for y, w in zip(coordinates, eigenimages, strict=True)
@@ -396,7 +424,7 @@ def embed_directions(
         )
 
     return DirectionalEmbedding(
-        groups=groups,
+        groups=DirectionGroups(groups.frames, tuple(members)),
         coordinates=tuple(coordinates),
         eigenimages=np.stack(eigenimages)
         if eigenimages

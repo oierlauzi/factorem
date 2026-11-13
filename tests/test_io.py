@@ -11,7 +11,7 @@ from factorem.io import (
     StarDataset,
     StarFormatError,
     format_embedding,
-    load_images,
+    open_images,
     parse_embedding,
     particles_from_tables,
 )
@@ -248,40 +248,96 @@ def test_images_are_centred_and_resampled(tmp_path, box_size):
     ]
     particles = _stack_particles(tmp_path, images, shifts)
 
-    stack = load_images(particles, max_pixel_size=4.0)
-    size = stack.box_size
+    opened = open_images(particles, max_pixel_size=4.0)
+    size = opened.box_size
+    assert len(opened) == 3
     assert size == resampled_box_size(box_size, 2.0, 4.0)
-    np.testing.assert_allclose(stack.pixel_size * size, 2.0 * box_size)
-    assert stack.usable.all()
+    np.testing.assert_allclose(opened.pixel_size * size, 2.0 * box_size)
 
+    ((read, usable),) = opened.read([np.arange(3)])
+    assert usable.all()
     scale = size / box_size
     expected = _gaussian(size, (size / 2, size / 2), 3.0 * scale)
-    for image in stack.images:
+    for image in read:
         np.testing.assert_allclose(image, expected, atol=2e-3)
 
 
 def test_images_are_kept_when_coarse_enough(tmp_path):
     images = np.random.default_rng(0).normal(size=(3, 16, 16))
     particles = _stack_particles(tmp_path, images, np.zeros((3, 2)), 5.0)
-    stack = load_images(particles, max_pixel_size=4.0)
-    assert stack.pixel_size == 5.0
-    np.testing.assert_allclose(stack.images, images, atol=1e-5)
+    opened = open_images(particles, max_pixel_size=4.0)
+    assert opened.pixel_size == 5.0
+    ((read, _),) = opened.read([np.arange(3)])
+    np.testing.assert_allclose(read, images, atol=1e-5)
 
 
-def test_images_without_data_are_flagged(tmp_path, caplog):
+def test_images_without_data_are_flagged(tmp_path):
     images = np.random.default_rng(0).normal(size=(6, 16, 16))
     images[1] = np.nan
     images[3] = 2.0
     # Finite, but its power is not.
     images[5, 4, 7] = 7.7e36
-    particles = _stack_particles(tmp_path, images, np.zeros((6, 2)))
+    particles = _stack_particles(tmp_path, images, np.zeros((6, 2)), 5.0)
 
-    with caplog.at_level('WARNING'):
-        stack = load_images(particles, max_pixel_size=4.0, scratch=tmp_path)
+    ((read, usable),) = open_images(particles, 4.0).read([np.arange(6)])
     np.testing.assert_array_equal(
-        stack.usable, [True, False, True, False, True, False]
+        usable, [True, False, True, False, True, False]
     )
-    assert np.isfinite(stack.images).all()
-    assert '[1, 3, 5]' in caplog.text
-    assert isinstance(stack.images, np.memmap)
-    assert len(stack) == 6
+    np.testing.assert_array_equal(read[~usable], 0.0)
+    np.testing.assert_allclose(read[usable], images[usable], atol=1e-5)
+
+
+_GROUPS = [
+    np.arange(30),
+    np.array([5, 3]),
+    np.array([], dtype=np.int64),
+    np.arange(10, 40),
+    np.array([39, 0, 39]),
+]
+
+
+def test_groups_are_read_one_after_another(tmp_path, monkeypatch):
+    # Batches of 16 images, which the groups do not end at.
+    monkeypatch.setattr('factorem.io.images._BATCH_BYTES', 1)
+    images = np.random.default_rng(0).normal(size=(40, 8, 8))
+    particles = _stack_particles(tmp_path, images, np.zeros((40, 2)), 5.0)
+
+    groups = list(open_images(particles, 4.0).read(_GROUPS))
+    assert len(groups) == len(_GROUPS)
+    for members, (read, usable) in zip(_GROUPS, groups, strict=True):
+        assert usable.shape == members.shape
+        assert usable.all()
+        np.testing.assert_allclose(read, images[members], atol=1e-5)
+
+
+@pytest.mark.parametrize('copy', ['memory', 'file', 'directory'])
+def test_copies_hold_the_same_images(tmp_path, copy):
+    images = np.random.default_rng(0).normal(size=(40, 8, 8))
+    particles = _stack_particles(tmp_path, images, np.zeros((40, 2)), 5.0)
+    scratch = tmp_path / 'scratch'
+    if copy == 'directory':
+        scratch.mkdir()
+
+    # A scratch is found again by the next analysis.
+    for _ in range(2):
+        opened = open_images(
+            particles,
+            4.0,
+            preload=copy == 'memory',
+            scratch=None if copy == 'memory' else scratch,
+        )
+        for members, (read, _) in zip(
+            _GROUPS, opened.read(_GROUPS), strict=True
+        ):
+            np.testing.assert_allclose(read, images[members], atol=1e-5)
+
+    assert scratch.is_file() == (copy == 'file')
+    if copy == 'directory':
+        assert len(list(scratch.glob('*.vitrio-scratch'))) == 1
+
+
+def test_images_are_copied_to_one_place(tmp_path):
+    images = np.random.default_rng(0).normal(size=(3, 8, 8))
+    particles = _stack_particles(tmp_path, images, np.zeros((3, 2)))
+    with pytest.raises(ValueError, match='not to both'):
+        open_images(particles, 4.0, preload=True, scratch=tmp_path / 'scratch')
