@@ -10,6 +10,9 @@ synchronizations.
   in its model, on images that are masked, whitened with the noise of
   their background and freed from the change of the mean with the view.
   It replaces the PCA of Wiener corrected images and the diffusion maps.
+- `--embedding mahalanobis-mds` embeds each direction by the
+  multidimensional scaling of the Mahalanobis distances between its
+  images (Bhamre, Zhao and Singer, 2017) instead.
 - Directions are brought to a common frame through the common lines of
   their eigenimages.
 - `--synchronization burer-monteiro` relates the directions by the

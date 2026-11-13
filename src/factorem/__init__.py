@@ -15,6 +15,7 @@ from importlib import metadata
 from .embedding import (
     DirectionalEmbedding,
     Embedder,
+    MahalanobisMDS,
     ProbabilisticPCA,
     embed_directions,
 )
@@ -49,6 +50,7 @@ __all__ = [
     'Embedder',
     'Embedding',
     'ImageStack',
+    'MahalanobisMDS',
     'Particles',
     'ProbabilisticPCA',
     'StarDataset',

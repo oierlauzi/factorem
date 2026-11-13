@@ -15,6 +15,10 @@ from collections.abc import Sequence
 from importlib import metadata
 from typing import Any
 
+# By a probabilistic PCA of the images, or by the multidimensional scaling
+# of the Mahalanobis distances between them.
+EMBEDDINGS = ('ppca', 'mahalanobis-mds')
+
 # By the common lines of the eigenimages of the directions, or by the
 # particles that they share.
 SYNCHRONIZATIONS = ('common-lines', 'burer-monteiro')
@@ -76,6 +80,15 @@ def _add_analyze(commands: Any, shared: argparse.ArgumentParser) -> None:
         help='Coordinates to give each particle (default: %(default)s).',
     )
     parser.add_argument(
+        '--embedding',
+        choices=EMBEDDINGS,
+        default=EMBEDDINGS[0],
+        help='How the particles of each projection direction are embedded: '
+        'by a probabilistic PCA with the CTF in its model, or by the '
+        'multidimensional scaling of the Mahalanobis distances between '
+        'the images (default: %(default)s).',
+    )
+    parser.add_argument(
         '--synchronization',
         choices=SYNCHRONIZATIONS,
         default=SYNCHRONIZATIONS[0],
@@ -105,6 +118,7 @@ def _add_analyze(commands: Any, shared: argparse.ArgumentParser) -> None:
 
 
 def _analyze(args: argparse.Namespace) -> int:
+    from .embedding import Embedder, MahalanobisMDS, ProbabilisticPCA
     from .io import StarDataset, StarFormatError
     from .pipeline import analyze
     from .synchronization import (
@@ -113,6 +127,11 @@ def _analyze(args: argparse.Namespace) -> int:
         Synchronizer,
     )
 
+    embedder: Embedder = (
+        MahalanobisMDS()
+        if args.embedding == 'mahalanobis-mds'
+        else ProbabilisticPCA()
+    )
     synchronizer: Synchronizer = (
         BurerMonteiroSynchronizer()
         if args.synchronization == 'burer-monteiro'
@@ -125,6 +144,7 @@ def _analyze(args: argparse.Namespace) -> int:
             diameter=args.diameter,
             resolution=args.resolution,
             components=args.components,
+            embedder=embedder,
             synchronizer=synchronizer,
             device=args.device,
             scratch=args.scratch,

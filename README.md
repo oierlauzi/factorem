@@ -55,6 +55,7 @@ directions it was analysed with.
 | `--diameter` | required | Diameter of the particle [Å]. |
 | `--resolution` | 16 | Resolution of the analysis [Å]. |
 | `--components` | 6 | Coordinates to give each particle. |
+| `--embedding` | `ppca` | How the particles of each direction are embedded: `ppca`, by a probabilistic PCA with the CTF in its model, or `mahalanobis-mds`, by the multidimensional scaling of the Mahalanobis distances between the images. |
 | `--synchronization` | `common-lines` | How the directions are brought to a common frame: `common-lines`, by the common lines of their eigenimages, or `burer-monteiro`, by the particles they share. |
 | `--root` | working directory | Directory that the images named in the STAR file are relative to. |
 | `--device` | first GPU, else CPU | Such as `cpu` or `gpu:1`. |
@@ -70,12 +71,15 @@ dataset = factorem.StarDataset.read('particles.star')
 embedding = factorem.analyze(
     dataset.particles,
     diameter=180.0,
+    embedder=factorem.ProbabilisticPCA(),  # The default.
     synchronizer=factorem.CommonLineSynchronizer(),  # The default.
 )
 dataset.write('embedded.star', embedding.coordinates, embedding.group_count)
 ```
 
-`factorem.BurerMonteiroSynchronizer()` is the other synchronization. The
+`factorem.MahalanobisMDS()` is the other embedder, with the distances of
+[Bhamre, Zhao and Singer (2017)][bhamre2017], and
+`factorem.BurerMonteiroSynchronizer()` the other synchronization. The
 stages that `analyze` chains are public as well, and
 [examples/stages.py][stages] calls them one by one.
 
@@ -96,5 +100,6 @@ GPL-3.0. See [LICENSE][license].
 [dashti2014]: https://doi.org/10.1073/pnas.1419276111
 [dashti2020]: https://doi.org/10.1038/s41467-020-18403-x
 [ojha2025]: https://journals.iucr.org/paper?sor5002
+[bhamre2017]: https://doi.org/10.1109/ISBI.2017.7950605
 [stages]: https://github.com/oierlauzi/factorem/blob/main/examples/stages.py
 [license]: https://github.com/oierlauzi/factorem/blob/main/LICENSE

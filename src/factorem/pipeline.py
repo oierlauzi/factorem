@@ -95,7 +95,8 @@ def analyze(
         components: How many coordinates to give each particle.
         design: The constants of the analysis.
         embedder: What embeds the particles of a direction. Defaults to
-            `ProbabilisticPCA`.
+            `ProbabilisticPCA`. `MahalanobisMDS` goes by the distances
+            between the images instead.
         synchronizer: What brings the directions to a common frame.
             Defaults to `CommonLineSynchronizer`, which goes by the
             common lines of their eigenimages. `BurerMonteiroSynchronizer`

@@ -40,6 +40,20 @@ def test_recovers_the_motions(simulation):
 
 
 @pytest.mark.slow
+def test_recovers_the_motions_from_distances(simulation):
+    dataset = factorem.StarDataset.read(simulation.path, root=simulation.root)
+    embedding = factorem.analyze(
+        dataset.particles,
+        diameter=simulation.diameter,
+        components=4,
+        embedder=factorem.MahalanobisMDS(),
+    )
+
+    assert np.isfinite(embedding.coordinates).all()
+    assert np.all(_explained(embedding.coordinates, simulation.latent) > 0.45)
+
+
+@pytest.mark.slow
 def test_command_line(simulation, tmp_path, monkeypatch):
     monkeypatch.chdir(simulation.root)
     output = tmp_path / 'embedded.star'
@@ -71,7 +85,12 @@ def test_command_line(simulation, tmp_path, monkeypatch):
 @dataclass(frozen=True)
 class _BrokenEmbedder:
     def __call__(
-        self, x: jax.Array, c: jax.Array, valid: jax.Array, components: int
+        self,
+        x: jax.Array,
+        c: jax.Array,
+        shells: jax.Array,
+        valid: jax.Array,
+        components: int,
     ) -> tuple[jax.Array, jax.Array]:
         return (
             jnp.full((x.shape[0], components), jnp.nan),
