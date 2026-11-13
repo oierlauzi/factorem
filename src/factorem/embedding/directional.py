@@ -249,7 +249,10 @@ def _embed_group(
     # A coefficient that stands for two counts twice.
     x = jnp.concatenate((residual.real * scale, residual.imag * scale), axis=1)
     c = jnp.concatenate((transfer, transfer), axis=1)
-    coordinates, loadings = embedder(x * valid[:, None], c, valid, components)
+    shells = jnp.concatenate((constants.shells, constants.shells))
+    coordinates, loadings = embedder(
+        x * valid[:, None], c, shells, valid, components
+    )
 
     half = len(constants.shells)
     eigenimages = (loadings[:half] + 1j * loadings[half:]) / weight[:, None]

@@ -61,7 +61,12 @@ class ProbabilisticPCA:
     images. It only matters at the frequencies that no CTF lets through."""
 
     def __call__(
-        self, x: jax.Array, c: jax.Array, valid: jax.Array, components: int
+        self,
+        x: jax.Array,
+        c: jax.Array,
+        shells: jax.Array,
+        valid: jax.Array,
+        components: int,
     ) -> tuple[jax.Array, jax.Array]:
         k = components
         count = jnp.sum(valid)

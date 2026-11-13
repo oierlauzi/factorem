@@ -21,13 +21,22 @@ def test_arguments():
     assert arguments.diameter == 180.0
     assert arguments.resolution == 16.0
     assert arguments.components == 6
+    assert arguments.embedding == 'ppca'
     assert arguments.synchronization == 'common-lines'
     assert arguments.device is None
     assert not arguments.verbose
 
     arguments = build_parser().parse_args(
-        [*_ANALYZE, '-v', '--synchronization', 'burer-monteiro']
+        [
+            *_ANALYZE,
+            '-v',
+            '--embedding',
+            'mahalanobis-mds',
+            '--synchronization',
+            'burer-monteiro',
+        ]
     )
+    assert arguments.embedding == 'mahalanobis-mds'
     assert arguments.synchronization == 'burer-monteiro'
     assert arguments.verbose
 
@@ -45,6 +54,7 @@ _ANALYZE = ['analyze', 'in.star', 'out.star', '--diameter', '100']
         ['analyze', 'in.star', 'out.star', '--diameter', '-1'],
         [*_ANALYZE, '--components', '0'],
         [*_ANALYZE, '--resolution', 'fine'],
+        [*_ANALYZE, '--embedding', 'x'],
         [*_ANALYZE, '--synchronization', 'x'],
     ],
 )

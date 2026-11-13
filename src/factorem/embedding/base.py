@@ -22,13 +22,21 @@ class Embedder(Protocol):
     """
 
     def __call__(
-        self, x: jax.Array, c: jax.Array, valid: jax.Array, components: int
+        self,
+        x: jax.Array,
+        c: jax.Array,
+        shells: jax.Array,
+        valid: jax.Array,
+        components: int,
     ) -> tuple[jax.Array, jax.Array]:
         """Embed the images of a direction.
 
         Args:
             x: Features of each image, ``(images, features)``.
             c: CTF of each feature of each image, like ``x``.
+            shells: Resolution shell of each feature, ``(features,)``: the
+                features of a shell are of about the same spatial
+                frequency.
             valid: One for the images to consider and zero for the ones
                 that only fill the batch, ``(images,)``.
             components: How many coordinates to give each image.
