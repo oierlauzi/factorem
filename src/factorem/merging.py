@@ -15,6 +15,17 @@ def merge_directions(
     """Average the coordinates each particle has in its directions, once
     they are in the common frame.
 
+    The average is the point closest, in least squares, to the coordinates
+    that the directions of a particle give it. It is the consensus of a
+    generalized Procrustes analysis (Gower, 1975) whose transforms are the
+    ones the synchronization found, so it takes no parameters and no
+    iterations, and a particle of a single direction keeps the coordinates
+    of that one.
+
+    No direction is given a scale or a weight of its own. The embedding
+    gives the coordinates of all of them the same prior, which already
+    makes them comparable.
+
     Args:
         embedding: The coordinates of the particles of each direction.
         transforms: The transform of each direction to the common frame,
