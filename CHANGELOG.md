@@ -10,11 +10,11 @@ synchronizations.
   in its model, on images that are masked, whitened with the noise of
   their background and freed from the change of the mean with the view.
   It replaces the PCA of Wiener corrected images and the diffusion maps.
-- Directions are brought to a common frame by the particles they share,
-  with the relaxation of Burer and Monteiro, as before. Each coordinate
-  now counts by the strength of its eigenimage.
-- `--synchronization common-lines` relates the directions through the
-  common lines of their eigenimages instead.
+- Directions are brought to a common frame through the common lines of
+  their eigenimages.
+- `--synchronization burer-monteiro` relates the directions by the
+  particles they share instead, with the relaxation of Burer and Monteiro,
+  as before. Each coordinate now counts by the strength of its eigenimage.
 - The command line is made of commands, of which `factorem analyze` is
   the first.
 - The inputs are the diameter of the particle, the resolution and the
