@@ -15,9 +15,9 @@ from collections.abc import Sequence
 from importlib import metadata
 from typing import Any
 
-# By the particles that directions share, or by the common lines of their
-# eigenimages.
-SYNCHRONIZATIONS = ('burer-monteiro', 'common-lines')
+# By the common lines of the eigenimages of the directions, or by the
+# particles that they share.
+SYNCHRONIZATIONS = ('common-lines', 'burer-monteiro')
 
 
 def _positive(text: str) -> float:
@@ -80,8 +80,8 @@ def _add_analyze(commands: Any, shared: argparse.ArgumentParser) -> None:
         choices=SYNCHRONIZATIONS,
         default=SYNCHRONIZATIONS[0],
         help='How the projection directions are brought to a common frame: '
-        'by the particles they share, with the relaxation of Burer and '
-        'Monteiro, or by the common lines of their eigenimages (default: '
+        'by the common lines of their eigenimages, or by the particles '
+        'they share, with the relaxation of Burer and Monteiro (default: '
         '%(default)s).',
     )
     parser.add_argument(
@@ -114,9 +114,9 @@ def _analyze(args: argparse.Namespace) -> int:
     )
 
     synchronizer: Synchronizer = (
-        CommonLineSynchronizer()
-        if args.synchronization == 'common-lines'
-        else BurerMonteiroSynchronizer()
+        BurerMonteiroSynchronizer()
+        if args.synchronization == 'burer-monteiro'
+        else CommonLineSynchronizer()
     )
     try:
         dataset = StarDataset.read(args.input, root=args.root)

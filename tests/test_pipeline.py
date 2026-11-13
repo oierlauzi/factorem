@@ -36,7 +36,7 @@ def test_recovers_the_motions(simulation):
     assert np.isfinite(embedding.coordinates).all()
     assert (embedding.group_count > 0).all()
     assert np.all(np.diff(embedding.variances) <= 0.0)
-    assert np.all(_explained(embedding.coordinates, simulation.latent) > 0.3)
+    assert np.all(_explained(embedding.coordinates, simulation.latent) > 0.45)
 
 
 @pytest.mark.slow
@@ -53,7 +53,7 @@ def test_command_line(simulation, tmp_path, monkeypatch):
             '--components',
             '3',
             '--synchronization',
-            'common-lines',
+            'burer-monteiro',
             '--scratch',
             str(tmp_path),
         ]
@@ -65,7 +65,7 @@ def test_command_line(simulation, tmp_path, monkeypatch):
     coordinates = parse_embedding(tables['particles']['factoremEmbedding'])
     assert coordinates.shape == (len(simulation.latent), 3)
     assert (tables['particles']['factoremGroupCount'] > 0).all()
-    assert np.all(_explained(coordinates, simulation.latent) > 0.45)
+    assert np.all(_explained(coordinates, simulation.latent) > 0.3)
 
 
 @dataclass(frozen=True)

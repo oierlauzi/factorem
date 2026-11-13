@@ -21,14 +21,14 @@ def test_arguments():
     assert arguments.diameter == 180.0
     assert arguments.resolution == 16.0
     assert arguments.components == 6
-    assert arguments.synchronization == 'burer-monteiro'
+    assert arguments.synchronization == 'common-lines'
     assert arguments.device is None
     assert not arguments.verbose
 
     arguments = build_parser().parse_args(
-        [*_ANALYZE, '-v', '--synchronization', 'common-lines']
+        [*_ANALYZE, '-v', '--synchronization', 'burer-monteiro']
     )
-    assert arguments.synchronization == 'common-lines'
+    assert arguments.synchronization == 'burer-monteiro'
     assert arguments.verbose
 
 

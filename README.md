@@ -11,7 +11,7 @@ their state and in little else, so each direction is analysed on its own,
 as a set of 2D images. Every direction ends up with coordinates in a frame
 of its own, and a synchronization finds the orthogonal transform of each
 that brings them all to a common one: by default, the transforms that make
-neighbouring directions agree on the particles they share.
+the eigenimages of the directions agree along their common lines.
 
 Analysing each projection direction by itself and relating the directions
 afterwards is the idea of [ManifoldEM][manifoldem] (Dashti et al.,
@@ -55,7 +55,7 @@ directions it was analysed with.
 | `--diameter` | required | Diameter of the particle [Å]. |
 | `--resolution` | 16 | Resolution of the analysis [Å]. |
 | `--components` | 6 | Coordinates to give each particle. |
-| `--synchronization` | `burer-monteiro` | How the directions are brought to a common frame: `burer-monteiro`, by the particles they share, or `common-lines`, by the common lines of their eigenimages. |
+| `--synchronization` | `common-lines` | How the directions are brought to a common frame: `common-lines`, by the common lines of their eigenimages, or `burer-monteiro`, by the particles they share. |
 | `--root` | working directory | Directory that the images named in the STAR file are relative to. |
 | `--device` | first GPU, else CPU | Such as `cpu` or `gpu:1`. |
 | `--scratch` | none | Directory to keep the working images in, instead of in memory. |
@@ -70,12 +70,12 @@ dataset = factorem.StarDataset.read('particles.star')
 embedding = factorem.analyze(
     dataset.particles,
     diameter=180.0,
-    synchronizer=factorem.BurerMonteiroSynchronizer(),  # The default.
+    synchronizer=factorem.CommonLineSynchronizer(),  # The default.
 )
 dataset.write('embedded.star', embedding.coordinates, embedding.group_count)
 ```
 
-`factorem.CommonLineSynchronizer()` is the other synchronization. The
+`factorem.BurerMonteiroSynchronizer()` is the other synchronization. The
 stages that `analyze` chains are public as well, and
 [examples/stages.py][stages] calls them one by one.
 

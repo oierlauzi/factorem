@@ -15,9 +15,9 @@ class Synchronizer(Protocol):
     The coordinates of a direction are known up to an orthogonal transform,
     as its embedder gives them in a frame of its own.
 
-    `BurerMonteiroSynchronizer` relates the directions by the particles
-    they share, and `CommonLineSynchronizer` by the common lines of their
-    eigenimages.
+    `CommonLineSynchronizer` relates the directions by the common lines
+    of their eigenimages, and `BurerMonteiroSynchronizer` by the particles
+    they share.
     """
 
     def __call__(self, embedding: DirectionalEmbedding) -> np.ndarray:
