@@ -15,10 +15,11 @@ neighbouring directions agree on the particles they share.
 
 Analysing each projection direction by itself and relating the directions
 afterwards is the idea of [ManifoldEM][manifoldem] (Dashti et al.,
-[2014][dashti2014], [2020][dashti2020]), which factorem follows. It differs
-in how: each direction is embedded linearly, by a probabilistic PCA with
-the CTF in its model, and the directions are related all at once and in
-all their coordinates, by an orthogonal synchronization.
+[2014][dashti2014], [2020][dashti2020] and Ojha et al. [2025][ojha2025]), 
+which factorem follows. It differs in how: each direction is embedded 
+linearly, by a probabilistic PCA with the CTF in its model, and the 
+directions are related all at once and in all their coordinates, by an 
+orthogonal synchronization.
 
 ## Installation
 
@@ -94,5 +95,6 @@ GPL-3.0. See [LICENSE][license].
 [manifoldem]: https://github.com/flatironinstitute/ManifoldEM
 [dashti2014]: https://doi.org/10.1073/pnas.1419276111
 [dashti2020]: https://doi.org/10.1038/s41467-020-18403-x
+[ojha2025]: https://journals.iucr.org/paper?sor5002
 [stages]: https://github.com/oierlauzi/factorem/blob/main/examples/stages.py
 [license]: https://github.com/oierlauzi/factorem/blob/main/LICENSE
