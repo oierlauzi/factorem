@@ -1,4 +1,9 @@
-"""Command line interface."""
+"""Command line interface.
+
+It is made of commands, ``factorem COMMAND ...``. A command is a function
+that adds its parser to those of the others, with the function that runs it
+as the ``run`` default, and is listed in `build_parser`.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +13,11 @@ import os
 import sys
 from collections.abc import Sequence
 from importlib import metadata
+from typing import Any
+
+# By the particles that directions share, or by the common lines of their
+# eigenimages.
+SYNCHRONIZATIONS = ('burer-monteiro', 'common-lines')
 
 
 def _positive(text: str) -> float:
@@ -24,9 +34,11 @@ def _count(text: str) -> int:
     return value
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog='factorem',
+def _add_analyze(commands: Any, shared: argparse.ArgumentParser) -> None:
+    parser = commands.add_parser(
+        'analyze',
+        parents=[shared],
+        help='Embed the particles according to their heterogeneity.',
         description=(
             'Embed the particles of a consensus refinement according to '
             'their heterogeneity.'
@@ -64,6 +76,15 @@ def build_parser() -> argparse.ArgumentParser:
         help='Coordinates to give each particle (default: %(default)s).',
     )
     parser.add_argument(
+        '--synchronization',
+        choices=SYNCHRONIZATIONS,
+        default=SYNCHRONIZATIONS[0],
+        help='How the projection directions are brought to a common frame: '
+        'by the particles they share, with the relaxation of Burer and '
+        'Monteiro, or by the common lines of their eigenimages (default: '
+        '%(default)s).',
+    )
+    parser.add_argument(
         '--root',
         metavar='DIRECTORY',
         help='Directory that the images named in the STAR file are relative '
@@ -80,17 +101,65 @@ def build_parser() -> argparse.ArgumentParser:
         metavar='DIRECTORY',
         help='Directory to keep the working images in, instead of in memory.',
     )
-    parser.add_argument(
-        '-v',
-        '--verbose',
-        action='store_true',
-        help='Report the progress.',
+    parser.set_defaults(run=_analyze)
+
+
+def _analyze(args: argparse.Namespace) -> int:
+    from .io import StarDataset, StarFormatError
+    from .pipeline import analyze
+    from .synchronization import (
+        BurerMonteiroSynchronizer,
+        CommonLineSynchronizer,
+        Synchronizer,
+    )
+
+    synchronizer: Synchronizer = (
+        CommonLineSynchronizer()
+        if args.synchronization == 'common-lines'
+        else BurerMonteiroSynchronizer()
+    )
+    try:
+        dataset = StarDataset.read(args.input, root=args.root)
+        embedding = analyze(
+            dataset.particles,
+            diameter=args.diameter,
+            resolution=args.resolution,
+            components=args.components,
+            synchronizer=synchronizer,
+            device=args.device,
+            scratch=args.scratch,
+        )
+    except (StarFormatError, OSError, ValueError) as error:
+        print(f'factorem: error: {error}', file=sys.stderr)
+        return 1
+    dataset.write(args.output, embedding.coordinates, embedding.group_count)
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog='factorem',
+        description='Heterogeneity analysis of cryo-EM single particles.',
     )
     parser.add_argument(
         '--version',
         action='version',
         version=f'%(prog)s {metadata.version("factorem")}',
     )
+
+    # What every command takes.
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        '-v',
+        '--verbose',
+        action='store_true',
+        help='Report the progress.',
+    )
+
+    commands = parser.add_subparsers(
+        dest='command', metavar='COMMAND', required=True
+    )
+    _add_analyze(commands, shared)
     return parser
 
 
@@ -106,21 +175,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     # JAX would otherwise take most of the memory of the GPU for itself,
     # whatever it ends up needing. It reads this when it is imported.
     os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
-    from .io import StarDataset, StarFormatError
-    from .pipeline import analyze
-
-    try:
-        dataset = StarDataset.read(args.input, root=args.root)
-        embedding = analyze(
-            dataset.particles,
-            diameter=args.diameter,
-            resolution=args.resolution,
-            components=args.components,
-            device=args.device,
-            scratch=args.scratch,
-        )
-    except (StarFormatError, OSError, ValueError) as error:
-        print(f'factorem: error: {error}', file=sys.stderr)
-        return 1
-    dataset.write(args.output, embedding.coordinates, embedding.group_count)
-    return 0
+    status: int = args.run(args)
+    return status

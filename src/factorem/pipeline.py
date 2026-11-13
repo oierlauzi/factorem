@@ -16,7 +16,7 @@ from .geometry import group_by_direction, sample_directions
 from .io.images import load_images
 from .merging import merge_directions, principal_components
 from .particles import Particles
-from .synchronization import CommonLineSynchronizer, Synchronizer
+from .synchronization import BurerMonteiroSynchronizer, Synchronizer
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +97,9 @@ def analyze(
         embedder: What embeds the particles of a direction. Defaults to
             `ProbabilisticPCA`.
         synchronizer: What brings the directions to a common frame.
-            Defaults to `CommonLineSynchronizer`.
+            Defaults to `BurerMonteiroSynchronizer`, which goes by the
+            particles they share. `CommonLineSynchronizer` goes by the
+            common lines of their eigenimages instead.
         device: Where to compute, such as ``'cpu'`` or ``'gpu:0'``.
             Defaults to the default device of JAX.
         scratch: A directory to keep the working images in, instead of in
@@ -118,7 +120,7 @@ def analyze(
         raise ValueError('At least one component is needed.')
     design = design or Design()
     embedder = embedder or ProbabilisticPCA()
-    synchronizer = synchronizer or CommonLineSynchronizer()
+    synchronizer = synchronizer or BurerMonteiroSynchronizer()
     device = resolve_device(device)
     start = time.monotonic()
 

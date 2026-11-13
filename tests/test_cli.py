@@ -13,23 +13,39 @@ from factorem.cli import build_parser
 
 def test_arguments():
     arguments = build_parser().parse_args(
-        ['in.star', 'out.star', '--diameter', '180']
+        ['analyze', 'in.star', 'out.star', '--diameter', '180']
     )
+    assert arguments.command == 'analyze'
     assert arguments.input == 'in.star'
     assert arguments.output == 'out.star'
     assert arguments.diameter == 180.0
     assert arguments.resolution == 16.0
     assert arguments.components == 6
+    assert arguments.synchronization == 'burer-monteiro'
     assert arguments.device is None
+    assert not arguments.verbose
+
+    arguments = build_parser().parse_args(
+        [*_ANALYZE, '-v', '--synchronization', 'common-lines']
+    )
+    assert arguments.synchronization == 'common-lines'
+    assert arguments.verbose
+
+
+_ANALYZE = ['analyze', 'in.star', 'out.star', '--diameter', '100']
 
 
 @pytest.mark.parametrize(
     'arguments',
     [
-        ['in.star', 'out.star'],
-        ['in.star', 'out.star', '--diameter', '-1'],
-        ['in.star', 'out.star', '--diameter', '100', '--components', '0'],
-        ['in.star', 'out.star', '--diameter', '100', '--resolution', 'fine'],
+        [],
+        ['in.star', 'out.star', '--diameter', '100'],
+        ['embed', 'in.star', 'out.star', '--diameter', '100'],
+        ['analyze', 'in.star', 'out.star'],
+        ['analyze', 'in.star', 'out.star', '--diameter', '-1'],
+        [*_ANALYZE, '--components', '0'],
+        [*_ANALYZE, '--resolution', 'fine'],
+        [*_ANALYZE, '--synchronization', 'x'],
     ],
 )
 def test_bad_arguments_are_refused(arguments, capsys):
@@ -48,7 +64,7 @@ def test_version(capsys):
 
 def test_runs_as_a_module():
     result = subprocess.run(
-        [sys.executable, '-m', 'factorem', '--help'],
+        [sys.executable, '-m', 'factorem', 'analyze', '--help'],
         capture_output=True,
         text=True,
         check=True,

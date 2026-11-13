@@ -69,7 +69,7 @@ source = ["factorem"]
 
 [tool.ruff]
 line-length = 80
-src = ["src", "tests", "benchmarks"]
+src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = [

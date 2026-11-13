@@ -68,6 +68,17 @@ class DirectionalEmbedding:
     def components(self) -> int:
         return int(self.eigenimages.shape[-1])
 
+    @property
+    def strengths(self) -> np.ndarray:
+        """Norm of the image of each coordinate of each direction, in units
+        of the noise, ``(directions, components)``: how much of the images
+        a unit of the coordinate stands for."""
+        power = np.square(np.abs(self.eigenimages))
+        strengths: np.ndarray = np.sqrt(
+            np.einsum('c,dck->dk', self.band.multiplicity, power)
+        )
+        return strengths
+
 
 class _Constants(NamedTuple):
     """What all the directions share, on the device."""
