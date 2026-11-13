@@ -27,7 +27,8 @@ def signal_power(
     excess = jax.ops.segment_sum(excess, shells, x.shape[1])
     norm = jax.ops.segment_sum(norm, shells, x.shape[1])
     power = jnp.maximum(excess, 0.0) / jnp.maximum(norm, 1e-20)
-    return power[shells]
+    spread: jax.Array = power[shells]
+    return spread
 
 
 def mahalanobis_distances(
