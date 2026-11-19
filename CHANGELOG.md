@@ -20,6 +20,10 @@ synchronizations.
   as before. Each coordinate now counts by the strength of its eigenimage.
 - The command line is made of commands, of which `factorem analyze` is
   the first.
+- `factorem annotate` shows the embedded particles on a plane, in a
+  window, and sorts them into classes with Gaussian mixtures that are
+  fitted or placed by hand. It comes from sinovar, and needs the `annotate`
+  extra.
 - The inputs are the diameter of the particle, the resolution and the
   number of components. The aperture and kernel options are gone.
 - Images are read once and resampled for the resolution. Corrupt images

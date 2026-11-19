@@ -6,6 +6,8 @@ import os
 
 # The tests are small enough for the CPU, and a GPU may be busy.
 os.environ.setdefault('JAX_PLATFORMS', 'cpu')
+# The window of the annotation is drawn, but never shown.
+os.environ.setdefault('MPLBACKEND', 'agg')
 
 from dataclasses import dataclass
 from pathlib import Path

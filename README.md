@@ -83,6 +83,40 @@ dataset.write('embedded.star', embedding.coordinates, embedding.group_count)
 stages that `analyze` chains are public as well, and
 [examples/stages.py][stages] calls them one by one.
 
+## Annotation
+
+```sh
+pip install 'factorem[annotate]'
+factorem annotate embedded.star annotated.star
+```
+
+`factorem annotate` opens a window with the density of the embedded
+particles on a plane, to sort them into classes there. The output is the
+same file with one column more, `factoremClass`: the class of each
+particle, from one on, and zero for the particles that the analysis left
+out. With `--label rlnClassNumber` the classes go where RELION looks for
+them.
+
+The classes are the Gaussians of a mixture, and each particle is of the one
+that most likely gave it.
+
+| Control | |
+|---|---|
+| `x`, `y` | The coordinate along each axis of the plane. |
+| Lay out by UMAP | Show the plane that [UMAP][umap] lays all the coordinates out on instead. It needs the `umap` extra. |
+| `full`, `tied`, `diag`, `spherical` | What the covariances of the fitted Gaussians may be: any, one for all of them, aligned with the axes, or round. |
+| Fit K classes | Fit a mixture of `K` Gaussians. |
+| Fit as many as the BIC asks | Fit the mixture of least Bayesian information criterion, among those of up to 20 Gaussians. |
+| Fit from the seeds | Fit a mixture of a Gaussian for each seed, starting from them. The classes keep the order of the seeds. |
+| Take the seeds as they are | Make a round Gaussian of each seed, without fitting anything. |
+| Save and close | Write the output. Nothing is written if the window is closed in any other way. |
+
+A click on the plane places a seed, dragging a seed moves it, the wheel
+over it changes its size and a right click removes it. The zoom and the pan
+of the toolbar take the clicks while they are on, and the density is
+counted again for what they leave in sight. The classes and the seeds
+belong to the plane they were made on, so changing it drops them.
+
 ## Development
 
 ```sh
@@ -101,5 +135,6 @@ GPL-3.0. See [LICENSE][license].
 [dashti2020]: https://doi.org/10.1038/s41467-020-18403-x
 [ojha2025]: https://journals.iucr.org/paper?sor5002
 [bhamre2017]: https://doi.org/10.1109/ISBI.2017.7950605
+[umap]: https://umap-learn.readthedocs.io
 [stages]: https://github.com/oierlauzi/factorem/blob/main/examples/stages.py
 [license]: https://github.com/oierlauzi/factorem/blob/main/LICENSE

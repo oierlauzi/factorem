@@ -22,6 +22,7 @@ from ..particles import CtfParameters, Particles
 
 EMBEDDING_LABEL = 'factoremEmbedding'
 GROUP_COUNT_LABEL = 'factoremGroupCount'
+CLASS_LABEL = 'factoremClass'
 
 _OPTICS_BLOCK = 'optics'
 _OPTICS_GROUP = 'rlnOpticsGroup'
@@ -181,6 +182,66 @@ def parse_embedding(column: Any) -> np.ndarray:
             for text in column
         ]
     )
+
+
+def read_embedding(
+    path: str | os.PathLike[str],
+) -> tuple[dict[str, pd.DataFrame], np.ndarray]:
+    """Read the coordinates of the particles of a STAR file that
+    `StarDataset.write` wrote. Nothing else is asked of the file.
+
+    Args:
+        path: The STAR file to read.
+
+    Returns:
+        The tables of the file, and the coordinates of each particle,
+        ``(particles, components)``.
+
+    Raises:
+        StarFormatError: If the file has no coordinates to read.
+    """
+    tables: dict[str, pd.DataFrame] = starfile.read(path, always_dict=True)
+    table = tables[_particle_block(tables)]
+    if EMBEDDING_LABEL not in table:
+        raise StarFormatError(
+            f'The particles have no {EMBEDDING_LABEL}, which factorem '
+            'analyze gives them.'
+        )
+    try:
+        coordinates = parse_embedding(table[EMBEDDING_LABEL])
+    except ValueError as error:
+        raise StarFormatError(
+            f'The {EMBEDDING_LABEL} of the particles cannot be read: they '
+            'are to be lists of as many numbers each.'
+        ) from error
+    return tables, coordinates
+
+
+def write_classes(
+    path: str | os.PathLike[str],
+    tables: dict[str, pd.DataFrame],
+    classes: np.ndarray,
+    label: str = CLASS_LABEL,
+) -> None:
+    """Write the tables of a STAR file with the class of each particle
+    added.
+
+    Args:
+        path: The STAR file to write.
+        tables: The tables, as read from a STAR file.
+        classes: The class of each particle, ``(particles,)``.
+        label: The column the classes go in. With ``rlnClassNumber``,
+            RELION takes them for its own.
+    """
+    block = _particle_block(tables)
+    table = tables[block].copy()
+    if len(classes) != len(table):
+        raise ValueError(
+            f'There are classes for {len(classes)} particles, and '
+            f'{len(table)} particles.'
+        )
+    table[label] = np.asarray(classes)
+    starfile.write({**tables, block: table}, path)
 
 
 @dataclass(frozen=True)
