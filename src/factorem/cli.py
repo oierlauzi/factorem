@@ -156,6 +156,72 @@ def _analyze(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_annotate(commands: Any, shared: argparse.ArgumentParser) -> None:
+    parser = commands.add_parser(
+        'annotate',
+        parents=[shared],
+        help='Look at the embedded particles and sort them into classes.',
+        description=(
+            'Show the particles that factorem analyze embedded on a plane, '
+            'in a window, and sort them into classes there. It needs the '
+            "annotate extra: pip install 'factorem[annotate]'."
+        ),
+    )
+    parser.add_argument(
+        'input',
+        help='STAR file with the coordinates of each particle in the '
+        'factoremEmbedding column, as factorem analyze writes it.',
+    )
+    parser.add_argument(
+        'output',
+        help='STAR file to write, with the class of each particle: from '
+        'one on, and zero for the particles without coordinates.',
+    )
+    parser.add_argument(
+        '--label',
+        default='factoremClass',
+        metavar='NAME',
+        help='Column to write the classes in. With rlnClassNumber, RELION '
+        'takes them for its own (default: %(default)s).',
+    )
+    parser.set_defaults(run=_annotate)
+
+
+def _annotate(args: argparse.Namespace) -> int:
+    from .io import StarFormatError, read_embedding, write_classes
+
+    try:
+        from .annotation import AnnotationWindow
+    except ImportError as error:
+        print(
+            f'factorem: error: {error}. The annotation needs matplotlib '
+            "and scikit-learn: pip install 'factorem[annotate]'.",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        tables, coordinates = read_embedding(args.input)
+        window = AnnotationWindow(
+            coordinates,
+            save=lambda classes: write_classes(
+                args.output, tables, classes, args.label
+            ),
+        )
+        classes = window.run()
+    except (StarFormatError, OSError, ValueError, RuntimeError) as error:
+        print(f'factorem: error: {error}', file=sys.stderr)
+        return 1
+    if classes is None:
+        print(
+            'factorem: error: The window was closed without saving, so '
+            'nothing was written.',
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog='factorem',
@@ -180,6 +246,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest='command', metavar='COMMAND', required=True
     )
     _add_analyze(commands, shared)
+    _add_annotate(commands, shared)
     return parser
 
 

@@ -2,6 +2,7 @@
 
 from .images import ImageStack, load_images
 from .star import (
+    CLASS_LABEL,
     EMBEDDING_LABEL,
     GROUP_COUNT_LABEL,
     StarDataset,
@@ -9,9 +10,12 @@ from .star import (
     format_embedding,
     parse_embedding,
     particles_from_tables,
+    read_embedding,
+    write_classes,
 )
 
 __all__ = [
+    'CLASS_LABEL',
     'EMBEDDING_LABEL',
     'GROUP_COUNT_LABEL',
     'ImageStack',
@@ -21,4 +25,6 @@ __all__ = [
     'load_images',
     'parse_embedding',
     'particles_from_tables',
+    'read_embedding',
+    'write_classes',
 ]

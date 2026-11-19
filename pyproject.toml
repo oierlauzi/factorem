@@ -36,12 +36,16 @@ dependencies = [
 [project.optional-dependencies]
 cuda12 = ["jax[cuda12]"]
 cuda13 = ["jax[cuda13]"]
+annotate = ["matplotlib>=3.8", "scikit-learn>=1.4"]
+umap = ["umap-learn>=0.5"]
 dev = [
+    "matplotlib>=3.8",
     "mypy>=2.0",
     "pandas-stubs",
     "pytest>=8",
     "pytest-cov",
     "ruff>=0.9",
+    "scikit-learn>=1.4",
 ]
 
 [project.scripts]
@@ -93,5 +97,11 @@ strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["starfile.*"]
+module = ["sklearn.*", "starfile.*"]
 ignore_missing_imports = true
+
+# umap-learn is typed only in name, and is not always there.
+[[tool.mypy.overrides]]
+module = ["umap.*"]
+ignore_missing_imports = true
+follow_imports = "skip"
